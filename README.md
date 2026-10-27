@@ -188,4 +188,10 @@ CampusFix/
 
 ## Product notes
 
-Campus names and reports already in a development database may be sample content. Demo login accounts are not provided. Configure a private `OPS_ACCESS_CODE` before inviting operations staff to register; administrator access must be provisioned separately by a trusted operator.
+Campus names and reports already in a development database may be sample content. Demo login accounts are not provided. To test Ops registration, use an eligible `@sst.scaler.com` or `@scaler.com` email address and this demo access code:
+
+```env
+OPS_ACCESS_CODE="nilpat@CampusFix.0369.OpsAccessCode"
+```
+
+This code allows anyone with access to this README to register an Ops account on the deployed application. It is provided for instructor evaluation only for this project; I will rotate it after evaluation. Administrator access must be provisioned separately by a trusted operator.
