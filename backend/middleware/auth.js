@@ -3,12 +3,11 @@ import User from '../models/User.js';
 
 export async function optionalAuth(req, _res, next) {
   const token = req.cookies?.campusfix_token;
-  if (token) {
-    try {
-      const decoded = jwt.verify(token, process.env.JWT_SECRET);
-      req.user = await User.findById(decoded.id);
-    } catch { /* An expired cookie behaves like a signed-out visitor. */ }
-  }
+  if (!token) return next();
+  let decoded;
+  try { decoded = jwt.verify(token, process.env.JWT_SECRET); }
+  catch { return next(); } // An expired or invalid cookie behaves like a signed-out visitor.
+  req.user = await User.findById(decoded.id);
   next();
 }
 

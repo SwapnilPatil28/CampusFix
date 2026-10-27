@@ -5,8 +5,8 @@ import { AnimatePresence, motion } from 'framer-motion';
 import {
   ArrowLeft, ArrowRight, Bookmark, Check, CheckCircle2, ChevronDown, CircleHelp,
   ClipboardList, Clock3, Compass, Hash, HeartHandshake, ImagePlus, LogOut,
-  MapPin, Menu, MessageCircle, Search, Send, ShieldCheck, SlidersHorizontal, Sparkles, ThumbsDown,
-  ThumbsUp, Users, Wrench, X, Zap
+  MapPin, Menu, MessageCircle, PanelLeftClose, PanelLeftOpen, Search, Send, ShieldCheck,
+  SlidersHorizontal, Sparkles, ThumbsDown, ThumbsUp, Users, Wrench, X, Zap
 } from 'lucide-react';
 import { toast } from 'react-toastify';
 
@@ -17,11 +17,14 @@ const statuses = ['Open', 'Acknowledged', 'In progress', 'Resolved', 'Reopened']
 const teamIcons = { Facilities: Wrench, IT: Zap, Security: ShieldCheck, Dining: HeartHandshake, Grounds: Sparkles, General: Hash, Other: Hash };
 const initials = (name = 'Campus member') => name.split(' ').map(part => part[0]).slice(0, 2).join('').toUpperCase();
 const ago = (date) => {
-  const delta = Math.max(0, Date.now() - new Date(date).getTime());
+  const timestamp = new Date(date).getTime();
+  if (!Number.isFinite(timestamp)) return 'Recently';
+  const delta = Math.max(0, Date.now() - timestamp);
   if (delta < 60_000) return 'just now';
   if (delta < 3_600_000) return `${Math.floor(delta / 60_000)}m ago`;
   if (delta < 86_400_000) return `${Math.floor(delta / 3_600_000)}h ago`;
-  return `${Math.floor(delta / 86_400_000)}d ago`;
+  if (delta < 30 * 86_400_000) return `${Math.floor(delta / 86_400_000)}d ago`;
+  return new Date(timestamp).toLocaleDateString();
 };
 const asset = (url) => !url ? '' : url.startsWith('http') ? url : `${(import.meta.env.VITE_API_URL || 'http://localhost:5000/api').replace(/\/api\/?$/, '')}${url}`;
 
@@ -48,6 +51,7 @@ function App() {
   const [composeOpen, setComposeOpen] = useState(false);
   const [search, setSearch] = useState('');
   const [mobileNav, setMobileNav] = useState(false);
+  const [navCollapsed, setNavCollapsed] = useState(() => localStorage.getItem('campusfix-nav-collapsed') === 'true');
   const location = useLocation();
   const navigate = useNavigate();
 
@@ -58,36 +62,39 @@ function App() {
   const requireUser = (action) => { if (!user) { setAuthOpen(true); return false; } action?.(); return true; };
   const onCreated = (issue) => { setComposeOpen(false); navigate(`/issues/${issue._id}`); toast.success('Your issue is on the campus feed.'); };
 
+  const toggleSidebar = () => setNavCollapsed(value => { const next = !value; localStorage.setItem('campusfix-nav-collapsed', String(next)); return next; });
+
   return <div className="app-shell">
     <header className="topbar">
       <Link to="/" className="brand"><span className="brand-mark"><Wrench size={20} strokeWidth={2.4} /></span><span>campusfix<span className="brand-period">.</span></span></Link>
+      <button className="nav-collapse" onClick={toggleSidebar} title={navCollapsed ? 'Expand navigation' : 'Collapse navigation'} aria-label={navCollapsed ? 'Expand navigation' : 'Collapse navigation'}>{navCollapsed ? <PanelLeftOpen size={18} /> : <PanelLeftClose size={18} />}</button>
       <div className="top-search"><Search size={17} /><input value={search} onChange={e => setSearch(e.target.value)} placeholder="Search campus issues..." aria-label="Search campus issues" /><kbd>/</kbd></div>
       <div className="top-actions">
         {user ? <button className="account-chip" onClick={signOut} title="Sign out"><Avatar person={user} size="sm" /><span className="account-name">{user.name.split(' ')[0]}</span><LogOut size={15} /></button> : <><button className="button button-quiet top-signin" onClick={() => setAuthOpen(true)}>Sign in</button><button className="button button-dark top-join" onClick={() => setAuthOpen(true)}>Join campusfix <ArrowRight size={16} /></button></>}
-        <button className="icon-button mobile-menu" aria-label="Open navigation" onClick={() => setMobileNav(v => !v)}>{mobileNav ? <X size={20} /> : <Menu size={20} />}</button>
+        <button className="icon-button mobile-menu" aria-label={mobileNav ? 'Close navigation' : 'Open navigation'} onClick={() => setMobileNav(v => !v)}>{mobileNav ? <X size={20} /> : <Menu size={20} />}</button>
       </div>
     </header>
-    <div className="app-layout">
+    <div className={`app-layout ${navCollapsed ? 'layout-collapsed' : ''}`}>
+      {mobileNav && <button className="sidebar-scrim" aria-label="Close navigation" onClick={() => setMobileNav(false)} />}
       <aside className={`sidebar ${mobileNav ? 'sidebar-open' : ''}`}>
         <div className="sidebar-campus"><div className="campus-monogram">N</div><div><strong>Northstar University</strong><span>Student community</span></div><ChevronDown size={15} /></div>
         <div className="side-section"><span className="side-label">CAMPUS</span>
-          <NavLink end to="/" className={({ isActive }) => `side-link ${isActive ? 'side-active' : ''}`}><Compass size={18} /> Explore issues</NavLink>
-          <button className="side-link" onClick={() => requireUser(() => navigate(location.search === '?filter=following' ? '/' : '/?filter=following'))}><Bookmark size={18} /> Following <span className="side-coming">{user ? '→' : '·'}</span></button>
-          {user && ['staff', 'admin'].includes(user.role) && <NavLink to="/staff" className={({ isActive }) => `side-link ${isActive ? 'side-active' : ''}`}><ClipboardList size={18} /> Ops queue <span className="side-count">{user.role === 'admin' ? 'ALL' : user.team.toUpperCase()}</span></NavLink>}
+          <NavLink end to="/" title="Explore issues" className={({ isActive }) => `side-link ${isActive ? 'side-active' : ''}`}><Compass size={18} /><span>Explore issues</span></NavLink>
+          <button className="side-link" title="Following" onClick={() => requireUser(() => navigate(location.search === '?filter=following' ? '/' : '/?filter=following'))}><Bookmark size={18} /><span>Following</span><span className="side-coming">{user ? '→' : '·'}</span></button>
+          {user && ['staff', 'admin'].includes(user.role) && <NavLink to="/staff" title="Operations queue" className={({ isActive }) => `side-link ${isActive ? 'side-active' : ''}`}><ClipboardList size={18} /><span>Ops queue</span><span className="side-count">{user.role === 'admin' ? 'ALL' : user.team.toUpperCase()}</span></NavLink>}
         </div>
         <div className="side-section"><span className="side-label">TEAMS</span>
-          {teams.slice(0, 5).map((team) => { const Icon = teamIcons[team]; return <button key={team} className="side-link" onClick={() => { navigate(`/?team=${encodeURIComponent(team)}`); setMobileNav(false); }}><span className={`team-icon team-${team.toLowerCase()}`}><Icon size={14} /></span>{team}<span className="team-mark">{team.slice(0, 1)}</span></button>; })}
+          {teams.slice(0, 5).map((team) => { const Icon = teamIcons[team]; return <button key={team} className="side-link" title={team} onClick={() => { navigate(`/?team=${encodeURIComponent(team)}`); setMobileNav(false); }}><span className={`team-icon team-${team.toLowerCase()}`}><Icon size={14} /></span><span>{team}</span><span className="team-mark">{team.slice(0, 1)}</span></button>; })}
         </div>
-        <button className="sidebar-report" onClick={() => requireUser(() => setComposeOpen(true))}><span className="report-plus">+</span><span><strong>Report an issue</strong><small>Make campus better</small></span><ArrowRight size={16} /></button>
-        <div className="sidebar-bottom"><div className="community-card"><div className="community-avatars"><Avatar person={{ name: 'Asha' }} size="xs" /><Avatar person={{ name: 'Dev' }} size="xs" /><Avatar person={{ name: 'Mina' }} size="xs" /><span>+2k</span></div><strong>Better, together.</strong><p>Your voice can make a real difference on campus.</p></div><div className="sidebar-footer"><span>Made for the people who make campus.</span><a href="mailto:campusfix@example.edu"><CircleHelp size={14} /> Help & feedback</a></div></div>
+        <button className="sidebar-report" title="Report an issue" onClick={() => requireUser(() => setComposeOpen(true))}><span className="report-plus">+</span><span><strong>Report an issue</strong><small>Share with campus</small></span><ArrowRight size={16} /></button>
+        <div className="sidebar-bottom"><div className="sidebar-footer"><span>Campus issues, heard and moving.</span></div></div>
       </aside>
       <main className="main-content"><Routes>
-        <Route path="/" element={<Feed user={user} search={search} requireUser={requireUser} onCompose={() => requireUser(() => setComposeOpen(true))} />} />
+        <Route path="/" element={<Feed search={search} requireUser={requireUser} onCompose={() => requireUser(() => setComposeOpen(true))} />} />
         <Route path="/issues/:id" element={<IssuePage user={user} requireUser={requireUser} onBack={() => navigate(-1)} />} />
         <Route path="/staff" element={<StaffQueue user={user} requireUser={requireUser} />} />
-        <Route path="*" element={<Feed user={user} search={search} requireUser={requireUser} onCompose={() => requireUser(() => setComposeOpen(true))} />} />
+        <Route path="*" element={<Feed search={search} requireUser={requireUser} onCompose={() => requireUser(() => setComposeOpen(true))} />} />
       </Routes></main>
-      <aside className="right-rail"><div className="rail-top"><span className="live-dot" /> CAMPUSFIX PRINCIPLE <span className="pulse-date">01 / 03</span></div><div className="pulse-card"><div className="principle-mark"><Users size={18} /></div><strong className="principle-title">More voices,<br />clearer picture.</strong><p>Show how an issue affects students. Help campus teams see what needs attention.</p><div className="principle-tags"><span>LISTEN</span><span>RESPOND</span><span>IMPROVE</span></div></div><div className="rail-section"><div className="rail-section-head"><strong>Issues live here</strong><span>AREAS</span></div><div className="trending-item"><span className="trend-icon trend-spaces"><Wrench size={14} /></span><div><strong>Spaces & facilities</strong><small>Rooms, paths, shared spaces</small></div></div><div className="trending-item"><span className="trend-icon trend-tech"><Zap size={14} /></span><div><strong>Campus technology</strong><small>Wi-Fi, classroom equipment</small></div></div><div className="trending-item"><span className="trend-icon trend-safety"><ShieldCheck size={14} /></span><div><strong>Safety & access</strong><small>Lighting, pathways, entrances</small></div></div></div><div className="rail-quote"><Sparkles size={16} /><p>“Small fixes make a big difference in how campus feels.”</p><span>CampusFix community guideline</span></div><div className="rail-bottom"><span>© 2026 CampusFix</span><a href="mailto:campusfix@example.edu">About</a><a href="mailto:campusfix@example.edu">Guidelines</a></div></aside>
     </div>
     <Modal open={authOpen} onClose={() => setAuthOpen(false)}><AuthPanel onClose={() => setAuthOpen(false)} onAuth={onAuth} /></Modal>
     <Modal open={composeOpen} onClose={() => setComposeOpen(false)} wide><ComposePanel user={user} onClose={() => setComposeOpen(false)} onCreated={onCreated} /></Modal>
@@ -95,7 +102,7 @@ function App() {
   </div>;
 }
 
-function Feed({ user, search, requireUser, onCompose }) {
+function Feed({ search, requireUser, onCompose }) {
   const [issues, setIssues] = useState([]);
   const [total, setTotal] = useState(0);
   const [summary, setSummary] = useState({});
@@ -115,7 +122,7 @@ function Feed({ user, search, requireUser, onCompose }) {
       setIssues(data.issues); setTotal(data.total || 0); setSummary(data.summary || {});
     } catch (err) { setError(err.response?.data?.message || 'Campus feed couldn’t load. Check your connection and try again.'); }
     finally { setLoading(false); }
-  }, [search, filters, followingOnly, user?.id]);
+  }, [search, filters, followingOnly]);
   useEffect(() => { const timer = setTimeout(refresh, 240); return () => clearTimeout(timer); }, [refresh]);
   const patchIssue = (updated) => setIssues(items => items.map(issue => issue._id === updated._id ? updated : issue));
   const loadMore = async () => {
@@ -150,13 +157,34 @@ function Feed({ user, search, requireUser, onCompose }) {
 }
 
 function IssueCard({ issue, index = 0, onVote, onFollow, onOpen }) {
-  const TeamIcon = teamIcons[issue.team] || Hash;
   return <motion.article className="issue-card" initial={{ opacity: 0, y: 12 }} animate={{ opacity: 1, y: 0 }} transition={{ delay: Math.min(index * .045, .2) }}>
     <div className="issue-topline"><div className="issue-author"><Avatar person={issue.author} size="sm" /><div><strong>{issue.author?.name || 'Campus member'}</strong><span>{ago(issue.createdAt)} <b>·</b> <MapPin size={11} /> {issue.location}</span></div></div><button className={`follow-button ${issue.isFollowing ? 'is-following' : ''}`} title={issue.isFollowing ? 'Unfollow issue' : 'Follow issue'} onClick={onFollow}>{issue.isFollowing ? <Bookmark size={16} fill="currentColor" /> : <Bookmark size={16} />}</button></div>
-    <div className="issue-content" onClick={onOpen} role="button" tabIndex="0" onKeyDown={e => (e.key === 'Enter' || e.key === ' ') && onOpen()}><div className="issue-tags"><Pill className={`team-pill team-pill-${issue.team.toLowerCase()}`}><TeamIcon size={12} />{issue.team}</Pill><Pill className="category-pill">{issue.category}</Pill><StatusBadge status={issue.status} /></div><h3>{issue.title}</h3><p className="issue-description">{issue.description}</p>{issue.imageUrl && <img className="issue-photo" src={asset(issue.imageUrl)} alt="Photo attached to the reported issue" />}</div>
+    <div className="issue-content" onClick={onOpen} role="button" tabIndex={0} onKeyDown={e => (e.key === 'Enter' || e.key === ' ') && onOpen()}><div className="issue-tags"><Pill className="category-pill">{issue.category}</Pill><StatusBadge status={issue.status} /></div><h3>{issue.title}</h3><p className="issue-description">{issue.description}</p>{issue.imageUrl && <img className="issue-photo" src={asset(issue.imageUrl)} alt="Photo attached to the reported issue" />}{issue.videoUrl && <video className="issue-video" src={asset(issue.videoUrl)} controls playsInline preload="metadata" aria-label="Video attached to the reported issue" onClick={e => e.stopPropagation()} onKeyDown={e => e.stopPropagation()} />}</div>
     <div className="issue-footer"><div className="impact-actions"><button className={`impact-button ${issue.myVote === 'affected' ? 'impact-selected' : ''}`} onClick={() => onVote('affected')} title="Say you’re affected"><ThumbsUp size={15} /><span>I’m affected</span><strong>{issue.affectedCount || 0}</strong></button><button className={`impact-button impact-no ${issue.myVote === 'not-affected' ? 'impact-selected-no' : ''}`} onClick={() => onVote('not-affected')} title="Say you haven’t experienced it"><ThumbsDown size={15} /><span>Not me</span><strong>{issue.notAffectedCount || 0}</strong></button></div><button className="comment-count" onClick={onOpen}><MessageCircle size={15} /> {issue.commentsCount || 0} <span>comments</span><ArrowRight size={13} /></button></div>
     {issue.updates?.length > 1 && <div className="latest-update"><span className="update-check"><Check size={12} /></span><span><strong>{issue.updates.at(-1)?.author?.name || 'Operations'} </strong>{issue.updates.at(-1)?.note || `updated status to ${issue.status.toLowerCase()}`}</span><span className="update-time">{ago(issue.updates.at(-1)?.createdAt)}</span></div>}
   </motion.article>;
+}
+
+function CommentItem({ item, user, onLike, onReply, onDelete }) {
+  const author = item.author && typeof item.author === 'object' ? item.author : null;
+  const authorId = String(author?._id || item.author || '');
+  const liked = (item.likedBy || []).some(person => String(person?._id || person) === String(user?.id));
+  return <div className="comment-item">
+    <Avatar person={author} size="sm" />
+    <div className="comment-body">
+      <div className="comment-byline">
+        <strong>{author?.name || 'Campus member'}</strong>
+        {item.staffReply && <Pill className="staff-reply-pill"><ShieldCheck size={11} /> Operations</Pill>}
+        <time dateTime={item.createdAt || undefined}>{ago(item.createdAt)}</time>
+      </div>
+      <p>{item.body || item.text || 'This comment has no text.'}</p>
+      <div className="comment-actions">
+        {!item.legacy && <button type="button" onClick={() => onLike(item)}>{liked ? 'Liked' : 'Like'} · {item.likes || 0}</button>}
+        <button type="button" onClick={() => onReply(author?.name)}>Reply</button>
+        {!item.legacy && user && authorId === String(user.id) && <button type="button" className="comment-delete" onClick={() => onDelete(item._id)}>Delete</button>}
+      </div>
+    </div>
+  </div>;
 }
 
 function IssuePage({ user, requireUser, onBack }) {
@@ -170,13 +198,23 @@ function IssuePage({ user, requireUser, onBack }) {
   const refresh = useCallback(async () => { setLoading(true); setError(''); try { const { data } = await API.get(`/issues/${id}`); setIssue(data.issue); } catch (err) { setError(err.response?.data?.message || 'This issue could not be loaded.'); } finally { setLoading(false); } }, [id]);
   useEffect(() => { refresh(); }, [refresh]);
   const update = async (url, body = {}) => { if (!requireUser()) return; try { const { data } = await API.post(url, body); setIssue(data.issue); return data.issue; } catch (err) { toast.error(err.response?.data?.message || 'Could not save that action.'); } };
-  const postComment = async (e) => { e.preventDefault(); if (!comment.trim() || posting) return; setPosting(true); const next = await update(`/issues/${id}/comments`, { body: comment }); if (next) setComment(''); setPosting(false); };
+  const postComment = async (e) => { e.preventDefault(); const body = comment.trim(); if (!body || posting) return; setPosting(true); try { const { data } = await API.post(`/issues/${id}/comments`, { body }); setIssue(current => ({ ...current, comments: [...current.comments, data.comment], commentsCount: (current.commentsCount || 0) + 1, isFollowing: true })); setComment(''); } catch (err) { toast.error(err.response?.data?.message || 'Could not post your comment.'); } finally { setPosting(false); } };
+  const deleteComment = async (commentId) => { try { await API.delete(`/issues/${id}/comments/${commentId}`); setIssue(current => ({ ...current, comments: current.comments.filter(item => item._id !== commentId), commentsCount: Math.max(0, (current.commentsCount || 1) - 1) })); toast.success('Comment deleted.'); } catch (err) { toast.error(err.response?.data?.message || 'Could not delete your comment.'); } };
+  const toggleCommentLike = async (item) => { if (!requireUser()) return; const liked = (item.likedBy || []).some(person => String(person?._id || person) === String(user.id)); try { const method = liked ? 'delete' : 'post'; const { data } = await API.request({ method, url: `/issues/${id}/comments/${item._id}/like` }); setIssue(current => ({ ...current, comments: current.comments.map(commentItem => commentItem._id === item._id ? data.comment : commentItem) })); } catch (err) { toast.error(err.response?.data?.message || 'Could not update the comment reaction.'); } };
+  const replyToComment = (name) => { if (!requireUser()) return; document.querySelector('.comment-composer textarea')?.focus(); setComment(value => value ? `${value} @${name || 'member'} ` : `@${name || 'member'} `); };
   const changeStatus = async (status) => { const response = await API.patch(`/issues/${id}/status`, { status, note: statusNote }).then(r => r.data.issue).catch(err => { toast.error(err.response?.data?.message || 'Could not update status.'); return null; }); if (response) { setIssue(response); setStatusNote(''); toast.success('Issue status updated.'); } };
   if (loading) return <div className="detail-page"><button className="back-link" onClick={onBack}><ArrowLeft size={15} /> Back to the board</button><div className="detail-skeleton" /></div>;
   if (error || !issue) return <div className="detail-page"><button className="back-link" onClick={onBack}><ArrowLeft size={15} /> Back to the board</button><div className="state-card error-state"><CircleHelp /><strong>Issue not available</strong><p>{error}</p><button className="button button-outline" onClick={refresh}>Try again</button></div></div>;
   const canManage = user && ['staff', 'admin'].includes(user.role) && (user.role === 'admin' || user.team === issue.team || user.team === 'General');
-  return <div className="detail-page"><button className="back-link" onClick={onBack}><ArrowLeft size={15} /> Back to the board</button><div className="detail-layout"><section className="detail-main"><article className="detail-card"><div className="issue-topline"><div className="issue-author"><Avatar person={issue.author} size="sm" /><div><strong>{issue.author?.name || 'Campus member'}</strong><span>{ago(issue.createdAt)} <b>·</b> <MapPin size={11} /> {issue.location}</span></div></div><StatusBadge status={issue.status} /></div><div className="issue-tags detail-tags"><Pill className={`team-pill team-pill-${issue.team.toLowerCase()}`}><Wrench size={12} />{issue.team} team</Pill><Pill className="category-pill">{issue.category}</Pill></div><h1>{issue.title}</h1><p className="detail-description">{issue.description}</p>{issue.imageUrl && <img className="detail-photo" src={asset(issue.imageUrl)} alt="Photo attached to the reported issue" />}<div className="detail-meta"><span><MapPin size={15} />{issue.location}</span><span><Clock3 size={15} />Reported {new Date(issue.createdAt).toLocaleDateString()}</span></div><div className="detail-impacts"><span className="impact-label">CAMPUS IMPACT</span><p>{issue.affectedCount} {issue.affectedCount === 1 ? 'person is' : 'people are'} affected by this</p><div className="impact-buttons"><button className={`button ${issue.myVote === 'affected' ? 'button-lime' : 'button-outline'}`} onClick={() => update(`/issues/${id}/vote`, { response: issue.myVote === 'affected' ? 'clear' : 'affected' })}><ThumbsUp size={15} /> I’m affected <b>{issue.affectedCount}</b></button><button className={`button ${issue.myVote === 'not-affected' ? 'button-selected-muted' : 'button-outline'}`} onClick={() => update(`/issues/${id}/vote`, { response: issue.myVote === 'not-affected' ? 'clear' : 'not-affected' })}><ThumbsDown size={15} /> Haven’t experienced it <b>{issue.notAffectedCount}</b></button></div></div><div className="detail-actions"><button className={`button button-outline ${issue.isFollowing ? 'button-following' : ''}`} onClick={() => update(`/issues/${id}/follow`)}>{issue.isFollowing ? <Check size={15} /> : <Bookmark size={15} />}{issue.isFollowing ? 'Following updates' : 'Follow updates'}</button><button className="button button-quiet" onClick={() => { navigator.clipboard?.writeText(window.location.href); toast.success('Issue link copied.'); }}><Send size={15} /> Share</button></div></article>
-      <section className="comments-panel"><div className="comments-title"><div><span className="section-kicker">KEEP THE CONVERSATION USEFUL</span><h2>Community discussion <span>{issue.comments.length}</span></h2></div><span className="discussion-note"><Users size={14} /> Be kind, stay constructive</span></div><form className="comment-composer" onSubmit={postComment}><Avatar person={user || { name: 'Guest' }} size="sm" /><div className="comment-input-wrap"><textarea value={comment} onChange={e => setComment(e.target.value)} onFocus={() => !user && requireUser()} placeholder={user ? 'Add context, a helpful detail, or a question...' : 'Sign in to join the conversation'} maxLength={1200} rows={2} /><div className="comment-compose-bottom"><span>{comment.length}/1200</span><button className="button button-dark" disabled={!comment.trim() || posting}>{posting ? 'Posting...' : 'Comment'} <Send size={14} /></button></div></div></form><div className="comments-list">{issue.comments.length ? issue.comments.map((item, index) => <div className="comment-item" key={item._id || index}><Avatar person={item.author} size="sm" /><div className="comment-body"><div className="comment-byline"><strong>{item.author?.name || 'Campus member'}</strong>{item.staffReply && <Pill className="staff-reply-pill"><ShieldCheck size={11} /> Operations</Pill>}<span>{ago(item.createdAt)}</span></div><p>{item.body}</p><button onClick={() => requireUser(() => { document.querySelector('.comment-composer textarea')?.focus(); setComment(v => v ? `${v} @${item.author?.name || 'member'} ` : `@${item.author?.name || 'member'} `); })}>Reply</button></div></div>) : <div className="empty-comments"><MessageCircle size={20} /><span>No comments yet. Add the first helpful detail.</span></div>}</div></section>
+  return <div className="detail-page"><button className="back-link" onClick={onBack}><ArrowLeft size={15} /> Back to the board</button><div className="detail-layout"><section className="detail-main"><article className="detail-card"><div className="issue-topline"><div className="issue-author"><Avatar person={issue.author} size="sm" /><div><strong>{issue.author?.name || 'Campus member'}</strong><span>{ago(issue.createdAt)} <b>·</b> <MapPin size={11} /> {issue.location}</span></div></div><StatusBadge status={issue.status} /></div><div className="issue-tags detail-tags"><Pill className="category-pill">{issue.category}</Pill></div><h1>{issue.title}</h1><p className="detail-description">{issue.description}</p>{issue.imageUrl && <img className="detail-photo" src={asset(issue.imageUrl)} alt="Photo attached to the reported issue" />}{issue.videoUrl && <video className="detail-video" src={asset(issue.videoUrl)} controls playsInline preload="metadata" aria-label="Video attached to the reported issue" />}<div className="detail-meta"><span><MapPin size={15} />{issue.location}</span><span><Clock3 size={15} />Reported {new Date(issue.createdAt).toLocaleDateString()}</span></div><div className="detail-impacts"><span className="impact-label">CAMPUS IMPACT</span><p>{issue.affectedCount} {issue.affectedCount === 1 ? 'person is' : 'people are'} affected by this</p><div className="impact-buttons"><button className={`button ${issue.myVote === 'affected' ? 'button-lime' : 'button-outline'}`} onClick={() => update(`/issues/${id}/vote`, { response: issue.myVote === 'affected' ? 'clear' : 'affected' })}><ThumbsUp size={15} /> I’m affected <b>{issue.affectedCount}</b></button><button className={`button ${issue.myVote === 'not-affected' ? 'button-selected-muted' : 'button-outline'}`} onClick={() => update(`/issues/${id}/vote`, { response: issue.myVote === 'not-affected' ? 'clear' : 'not-affected' })}><ThumbsDown size={15} /> Haven’t experienced it <b>{issue.notAffectedCount}</b></button></div></div><div className="detail-actions"><button className={`button button-outline ${issue.isFollowing ? 'button-following' : ''}`} onClick={() => update(`/issues/${id}/follow`)}>{issue.isFollowing ? <Check size={15} /> : <Bookmark size={15} />}{issue.isFollowing ? 'Following updates' : 'Follow updates'}</button><button className="button button-quiet" onClick={() => { navigator.clipboard?.writeText(window.location.href); toast.success('Issue link copied.'); }}><Send size={15} /> Share</button></div></article>
+      <section className="comments-panel">
+        <div className="comments-title"><div><span className="section-kicker">KEEP THE CONVERSATION USEFUL</span><h2>Community discussion <span>{issue.commentsCount ?? issue.comments.length}</span></h2></div><span className="discussion-note"><Users size={14} /> Be kind, stay constructive</span></div>
+        <form className="comment-composer" onSubmit={postComment}>
+          <Avatar person={user || { name: 'Guest' }} size="sm" />
+          <div className="comment-input-wrap"><textarea value={comment} onChange={e => setComment(e.target.value)} onFocus={() => !user && requireUser()} placeholder={user ? 'Add context, a helpful detail, or a question...' : 'Sign in to join the conversation'} maxLength={1200} rows={3} /><div className="comment-compose-bottom"><span>{comment.length}/1200</span><button className="button button-dark" disabled={!comment.trim() || posting}>{posting ? 'Posting...' : 'Comment'} <Send size={14} /></button></div></div>
+        </form>
+        <div className="comments-list">{issue.comments.length ? issue.comments.map((item, index) => <CommentItem key={item._id || index} item={item} user={user} onLike={toggleCommentLike} onReply={replyToComment} onDelete={deleteComment} />) : <div className="empty-comments"><MessageCircle size={20} /><span>No comments yet. Add the first helpful detail.</span></div>}</div>
+      </section>
       </section><aside className="detail-side"><div className="team-response-card"><div className="response-card-icon"><ShieldCheck size={19} /></div><span className="section-kicker">ROUTED TO</span><h3>{issue.team}</h3><p>The right campus team has been tagged. Their updates will appear here as they work on it.</p><div className="team-response-foot"><span className="response-online" /> {issue.status === 'Open' ? 'Waiting for a team response' : 'Team is on this'}</div></div>{canManage && <div className="staff-update-card"><div className="staff-update-head"><span className="response-card-icon"><ClipboardList size={18} /></span><div><span className="section-kicker">STAFF TOOLS</span><h3>Update this issue</h3></div></div><label>Status<select value={issue.status} onChange={e => changeStatus(e.target.value)}>{statuses.map(status => <option key={status}>{status}</option>)}</select></label><label>Public note <textarea value={statusNote} maxLength={500} onChange={e => setStatusNote(e.target.value)} placeholder="Share an update with students..." /></label><small>Updates are visible to everyone following this issue.</small></div>}<div className="timeline-card"><span className="section-kicker">ISSUE TIMELINE</span>{issue.updates.slice().reverse().map((update, index) => <div className="timeline-entry" key={update._id || index}><span className={`timeline-icon ${index === 0 ? 'timeline-current' : ''}`}>{update.status === 'Resolved' ? <Check size={12} /> : <span />}</span><div><strong>{update.status}</strong><p>{update.note || `Status updated by ${update.author?.name || 'Campus operations'}`}</p><small>{ago(update.createdAt)}</small></div></div>)}</div></aside></div></div>;
 }
 
@@ -195,24 +233,66 @@ function StaffQueue({ user, requireUser }) {
 }
 
 function ComposePanel({ user, onClose, onCreated }) {
-  const [form, setForm] = useState({ title: '', description: '', category: 'Facilities', location: '', team: 'Facilities' });
-  const [image, setImage] = useState(null);
+  const categoryInfo = {
+    Facilities: { label: 'Facilities & maintenance', team: 'Facilities', note: 'Repairs, lighting, water, furniture, and shared rooms.' },
+    IT: { label: 'Technology & connectivity', team: 'IT', note: 'Campus Wi-Fi, classroom devices, and student systems.' },
+    Security: { label: 'Safety & security', team: 'Security', note: 'Lighting, access, and safety concerns.' },
+    Dining: { label: 'Dining & food', team: 'Dining', note: 'Dining halls, meal service, and food options.' },
+    Grounds: { label: 'Outdoor spaces & grounds', team: 'Grounds', note: 'Paths, lawns, outdoor seating, and campus grounds.' },
+    Other: { label: 'Other campus issue', team: 'General', note: 'The campus team will review and route this report.' }
+  };
+  const [form, setForm] = useState({ title: '', description: '', category: 'Facilities', location: '' });
+  const [media, setMedia] = useState(null);
   const [preview, setPreview] = useState('');
   const [saving, setSaving] = useState(false);
+  useEffect(() => () => { if (preview) URL.revokeObjectURL(preview); }, [preview]);
   const set = (key, value) => setForm(prev => ({ ...prev, [key]: value }));
-  const submit = async (e) => {
-    e.preventDefault(); if (saving) return; setSaving(true);
+  const submit = async (event) => {
+    event.preventDefault();
+    if (saving) return;
+    setSaving(true);
     try {
-      let uploadedImage = {};
-      if (image) { const uploadData = new FormData(); uploadData.append('image', image); uploadedImage = (await API.post('/issues/upload', uploadData)).data; }
-      const { data } = await API.post('/issues', { ...form, ...uploadedImage }); onCreated(data.issue);
-    } catch (err) { toast.error(err.response?.data?.message || 'Could not publish your report.'); }
-    finally { setSaving(false); }
+      const reportData = new FormData();
+      Object.entries(form).forEach(([key, value]) => reportData.append(key, value));
+      if (media) reportData.append(media.type.startsWith('video/') ? 'video' : 'image', media);
+      const route = media?.type.startsWith('video/') ? '/issues/video' : '/issues';
+      const { data } = await API.post(route, reportData);
+      onCreated(data.issue);
+    } catch (error) {
+      toast.error(error.response?.data?.message || 'Could not publish your report. Please try again.');
+    } finally {
+      setSaving(false);
+    }
   };
-  const handleImage = (file) => { if (!file) return; if (!file.type.startsWith('image/')) return toast.error('Choose an image file.'); if (file.size > 5 * 1024 * 1024) return toast.error('Image must be 5 MB or smaller.'); setImage(file); setPreview(URL.createObjectURL(file)); };
-  return <><div className="modal-header"><div><span className="section-kicker">MAKE CAMPUS BETTER</span><h2>Report an issue</h2><p>Clear details help the right team take action.</p></div><button className="icon-button" onClick={onClose} aria-label="Close"><X size={19} /></button></div><form className="compose-form" onSubmit={submit}><div className="compose-author"><Avatar person={user || { name: 'You' }} /><div><strong>Posting as {user?.name || 'you'}</strong><span>Your report will be visible to the campus community.</span></div></div><label>What needs attention? <span className="required-star">*</span><input required maxLength={120} value={form.title} onChange={e => set('title', e.target.value)} placeholder="e.g. Water fountain leaking by the library" /><small className="form-counter">{form.title.length}/120</small></label><label>Tell us a little more <span className="required-star">*</span><textarea required maxLength={3000} rows={4} value={form.description} onChange={e => set('description', e.target.value)} placeholder="What’s happening? When did you notice it? How is it affecting students?" /><small className="form-counter">{form.description.length}/3000</small></label><div className="form-row"><label>Category <select value={form.category} onChange={e => { set('category', e.target.value); if (teams.includes(e.target.value)) set('team', e.target.value); }} required>{categories.map(category => <option key={category}>{category}</option>)}</select></label><label>Tag an operations team <select value={form.team} onChange={e => set('team', e.target.value)} required>{teams.map(team => <option key={team}>{team}</option>)}</select></label></div><label>Where on campus? <span className="required-star">*</span><div className="input-with-icon"><MapPin size={16} /><input required maxLength={120} value={form.location} onChange={e => set('location', e.target.value)} placeholder="Building, room, or nearby landmark" /></div></label><div className="attachment-area">{preview ? <div className="image-preview"><img src={preview} alt="Preview of selected campus issue" /><button type="button" className="remove-image" onClick={() => { setImage(null); setPreview(''); }}>Remove photo <X size={14} /></button></div> : <label className="attachment-button"><input type="file" accept="image/png,image/jpeg,image/webp,image/gif" onChange={e => handleImage(e.target.files?.[0])} /><ImagePlus size={17} /><span><strong>Add a photo</strong><small>Optional · JPG, PNG, WebP or GIF · up to 5 MB</small></span><span className="attach-plus">+</span></label>}</div><div className="compose-tip"><Sparkles size={15} /><span>Keep it constructive. Reports are public and help the right team understand what students need.</span></div><div className="modal-actions"><button type="button" className="button button-quiet" onClick={onClose}>Cancel</button><button className="button button-lime" disabled={saving}>{saving ? 'Publishing...' : 'Publish report'} <ArrowRight size={16} /></button></div></form></>;
+  const handleMedia = (file) => {
+    if (!file) return;
+    const isImage = file.type.startsWith('image/');
+    const isVideo = file.type.startsWith('video/');
+    if (!isImage && !isVideo) return toast.error('Choose an image or video file.');
+    if (file.size > (isImage ? 5 : 50) * 1024 * 1024) return toast.error(isImage ? 'Image must be 5 MB or smaller.' : 'Video must be 50 MB or smaller.');
+    setMedia(file);
+    setPreview(URL.createObjectURL(file));
+  };
+  return <>
+    <div className="modal-header">
+      <div><span className="section-kicker">CAMPUS ISSUE REPORT</span><h2>What needs attention?</h2><p>Share enough detail for students and the right team to understand it.</p></div>
+      <button className="icon-button" onClick={onClose} aria-label="Close report form"><X size={19} /></button>
+    </div>
+    <form className="compose-form" onSubmit={submit}>
+      <div className="compose-author"><Avatar person={user || { name: 'You' }} /><div><strong>Posting as {user?.name || 'you'}</strong><span>Your report will be visible to the campus community.</span></div></div>
+      <div className="form-section-title"><span>01</span><div><strong>Issue details</strong><small>What is happening, and where?</small></div></div>
+      <label>Short title <span className="required-star">*</span><input required maxLength={120} value={form.title} onChange={event => set('title', event.target.value)} placeholder="e.g. Water fountain leaking in the library" /><small className="form-counter">{form.title.length}/120</small></label>
+      <label>Issue type <span className="required-star">*</span><select value={form.category} onChange={event => set('category', event.target.value)} required>{categories.map(category => <option key={category} value={category}>{categoryInfo[category].label}</option>)}</select><small className="field-hint">{categoryInfo[form.category].note}</small></label>
+      <div className="auto-route-card"><span className={`team-icon team-${categoryInfo[form.category].team.toLowerCase()}`}><Wrench size={15} /></span><div><small>ROUTED TO</small><strong>{categoryInfo[form.category].team} operations</strong></div><CheckCircle2 size={17} /></div>
+      <label>Campus location <span className="required-star">*</span><div className="input-with-icon"><MapPin size={16} /><input required maxLength={120} value={form.location} onChange={event => set('location', event.target.value)} placeholder="Building, room, floor, or nearby landmark" /></div></label>
+      <label>What should the team know? <span className="required-star">*</span><textarea required maxLength={3000} rows={4} value={form.description} onChange={event => set('description', event.target.value)} placeholder="Describe what you noticed, when it happens, and how it affects students." /><small className="form-counter">{form.description.length}/3000</small></label>
+      <div className="form-section-title"><span>02</span><div><strong>Add media <small>Optional</small></strong><small>A photo or short video can help the team understand the issue.</small></div></div>
+      <div className="attachment-area">{preview ? <div className="image-preview">{media?.type.startsWith('video/') ? <video src={preview} controls playsInline /> : <img src={preview} alt="Preview of selected campus issue" />}<button type="button" className="remove-image" onClick={() => { setMedia(null); setPreview(''); }}>Remove attachment <X size={14} /></button></div> : <label className="attachment-button"><input type="file" accept="image/*,video/*" onChange={event => handleMedia(event.target.files?.[0])} /><ImagePlus size={17} /><span><strong>Choose a photo or video</strong><small>Image up to 5 MB · video up to 50 MB</small></span><span className="attach-plus">+</span></label>}</div>
+      <div className="compose-tip"><Sparkles size={15} /><span>Reports are public. Please avoid including private information or photos of people without permission.</span></div>
+      <div className="modal-actions"><button type="button" className="button button-quiet" onClick={onClose}>Cancel</button><button className="button button-lime" disabled={saving}>{saving ? 'Publishing...' : 'Publish issue'} <ArrowRight size={16} /></button></div>
+    </form>
+  </>;
 }
-
 function AuthPanel({ onClose, onAuth }) {
   const [mode, setMode] = useState('login');
   const [form, setForm] = useState({ name: '', email: '', password: '' });

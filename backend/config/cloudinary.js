@@ -1,4 +1,7 @@
 import { v2 as cloudinary } from 'cloudinary';
+import dotenv from 'dotenv';
+
+dotenv.config();
 
 export function isCloudinaryConfigured() {
   return Boolean(process.env.CLOUDINARY_CLOUD_NAME && process.env.CLOUDINARY_API_KEY && process.env.CLOUDINARY_API_SECRET);
@@ -14,15 +17,32 @@ cloudinary.config({
 export function uploadIssueImage(buffer) {
   return new Promise((resolve, reject) => {
     const stream = cloudinary.uploader.upload_stream(
-      { folder: 'campusfix/issues', resource_type: 'image' },
+      { folder: 'campusfix/issues/images', resource_type: 'image' },
       (error, result) => {
         if (error) return reject(error);
-        if (!result?.secure_url || !result?.public_id) return reject(new Error('Cloudinary did not return an image URL.'));
-        resolve({ imageUrl: result.secure_url, imagePublicId: result.public_id });
+        resolve(result);
       }
     );
     stream.end(buffer);
   });
+}
+
+export function uploadIssueVideo(buffer) {
+  return new Promise((resolve, reject) => {
+    const stream = cloudinary.uploader.upload_stream(
+      { folder: 'campusfix/issues/videos', resource_type: 'video' },
+      (error, result) => {
+        if (error) return reject(error);
+        resolve(result);
+      }
+    );
+    stream.end(buffer);
+  });
+}
+
+export function deleteIssueMedia(publicId, mediaType = 'image') {
+  if (!publicId) return Promise.resolve();
+  return cloudinary.uploader.destroy(publicId, { resource_type: mediaType });
 }
 
 export default cloudinary;

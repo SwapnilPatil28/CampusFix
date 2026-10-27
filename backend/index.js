@@ -7,6 +7,7 @@ import cookieParser from 'cookie-parser';
 import morgan from 'morgan';
 import authRoutes from './routes/auth.routes.js';
 import issueRoutes from './routes/issue.routes.js';
+import issueCommentRoutes from './routes/comment.routes.js';
 import { errorHandler, notFound } from './middleware/errors.js';
 
 const app = express();
@@ -25,6 +26,7 @@ app.use(cookieParser());
 app.use(morgan('dev'));
 app.get('/api/health', (_req, res) => res.json({ status: 'ok', service: 'CampusFix API' }));
 app.use('/api/auth', authRoutes);
+app.use('/api/issues/:id/comments', issueCommentRoutes);
 app.use('/api/issues', issueRoutes);
 app.use(notFound);
 app.use(errorHandler);

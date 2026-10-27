@@ -1,25 +1,27 @@
 import { Router } from 'express';
 import mongoose from 'mongoose';
-import multer from 'multer';
 import Issue from '../models/Issue.js';
 import { optionalAuth, requireAuth, requireStaff } from '../middleware/auth.js';
-import { isCloudinaryConfigured, uploadIssueImage } from '../config/cloudinary.js';
+import { deleteIssueMedia, isCloudinaryConfigured, uploadIssueImage, uploadIssueVideo } from '../config/cloudinary.js';
+import { uploadImage } from '../middleware/uploadImage.js';
+import { uploadVideo } from '../middleware/uploadVideo.js';
 
 const router = Router();
 const teams = ['Facilities', 'IT', 'Security', 'Dining', 'Grounds', 'General'];
 const categories = ['Facilities', 'IT', 'Security', 'Dining', 'Grounds', 'Other'];
+const teamForCategory = { Facilities: 'Facilities', IT: 'IT', Security: 'Security', Dining: 'Dining', Grounds: 'Grounds', Other: 'General' };
 const statuses = ['Open', 'Acknowledged', 'In progress', 'Resolved', 'Reopened'];
-const upload = multer({
-  storage: multer.memoryStorage(),
-  limits: { fileSize: 5 * 1024 * 1024 },
-  fileFilter: (_req, file, cb) => cb(null, ['image/jpeg', 'image/png', 'image/webp', 'image/gif'].includes(file.mimetype))
-});
-const populated = (query) => query.populate('author', 'name role team avatarColor').populate('comments.author', 'name role team avatarColor').populate('updates.author', 'name role team avatarColor');
+const populated = (query) => query
+  .populate('author', 'name role team avatarColor')
+  .populate('comments.author', 'name role team avatarColor')
+  .populate({ path: 'commentIds', populate: { path: 'author', select: 'name role team avatarColor' } })
+  .populate('updates.author', 'name role team avatarColor');
 const issueJson = (issue, user) => {
   const raw = issue.toObject ? issue.toObject() : issue;
-  const { votes, followers, ...publicIssue } = raw;
+  const { votes, followers, commentIds = [], comments: legacyComments = [], ...publicIssue } = raw;
   const uid = user?._id?.toString();
-  return { ...publicIssue, affectedCount: votes.filter(v => v.response === 'affected').length, notAffectedCount: votes.filter(v => v.response === 'not-affected').length, myVote: votes.find(v => v.user?._id?.toString() === uid || v.user?.toString() === uid)?.response || null, isFollowing: followers.some(f => f._id?.toString() === uid || f.toString() === uid), commentsCount: raw.comments.length };
+  const comments = [...legacyComments.map(comment => ({ ...comment, legacy: true })), ...commentIds.map(comment => ({ _id: comment._id, author: comment.author, body: comment.body, staffReply: comment.staffReply, likes: comment.likes || 0, likedBy: comment.likedBy || [], createdAt: comment.createdAt }))].sort((a, b) => new Date(a.createdAt) - new Date(b.createdAt));
+  return { ...publicIssue, comments, affectedCount: votes.filter(v => v.response === 'affected').length, notAffectedCount: votes.filter(v => v.response === 'not-affected').length, myVote: votes.find(v => v.user?._id?.toString() === uid || v.user?.toString() === uid)?.response || null, isFollowing: followers.some(f => f._id?.toString() === uid || f.toString() === uid), commentsCount: comments.length };
 };
 
 router.get('/', optionalAuth, async (req, res, next) => {
@@ -46,24 +48,46 @@ router.get('/', optionalAuth, async (req, res, next) => {
   } catch (error) { next(error); }
 });
 
-router.post('/upload', requireAuth, (req, res, next) => upload.single('image')(req, res, async (error) => {
-  if (error) return res.status(400).json({ message: error.code === 'LIMIT_FILE_SIZE' ? 'Image must be 5 MB or smaller.' : 'Upload a JPG, PNG, GIF, or WebP image.' });
-  if (!req.file) return res.status(400).json({ message: 'Choose an image to upload.' });
-  if (!isCloudinaryConfigured()) return res.status(503).json({ message: 'Photo uploads are not configured yet. Add Cloudinary credentials to the backend environment.' });
+const createIssue = async (req, res, next) => {
+  let uploadedMedia = null;
+  let createdIssueId = null;
   try {
-    const uploaded = await uploadIssueImage(req.file.buffer);
-    res.status(201).json(uploaded);
-  } catch (uploadError) { next(uploadError); }
-}));
-
-router.post('/', requireAuth, async (req, res, next) => {
-  try {
-    const { title, description, category, location, team, imageUrl, imagePublicId } = req.body;
-    if (!title?.trim() || title.trim().length > 120 || !description?.trim() || description.trim().length > 3000 || !location?.trim() || location.trim().length > 120 || !categories.includes(category) || !teams.includes(team)) return res.status(400).json({ message: 'Add a title, description, campus location, category, and operations team.' });
-    const issue = await Issue.create({ title: title.trim(), description: description.trim(), category, location: location.trim(), team, imageUrl: typeof imageUrl === 'string' ? imageUrl.slice(0, 1000) : '', imagePublicId: typeof imagePublicId === 'string' ? imagePublicId.slice(0, 200) : '', author: req.user._id, followers: [req.user._id], updates: [{ author: req.user._id, status: 'Open', note: 'Issue reported' }] });
+    const { title, description, category, location } = req.body;
+    const file = req.file;
+    const mediaType = req.path === '/video' ? 'video' : 'image';
+    if (!title?.trim() || title.trim().length > 120 || !description?.trim() || description.trim().length > 3000 || !location?.trim() || location.trim().length > 120 || !categories.includes(category)) return res.status(400).json({ message: 'Add a title, description, campus location, and issue type.' });
+    if (file && !isCloudinaryConfigured()) return res.status(503).json({ message: 'Photo and video uploads are not configured. Add Cloudinary credentials to the backend environment.' });
+    if (file) {
+      const result = mediaType === 'video' ? await uploadIssueVideo(file.buffer) : await uploadIssueImage(file.buffer);
+      if (!result?.secure_url || !result?.public_id) throw new Error('Cloudinary did not return a media URL.');
+      uploadedMedia = { url: result.secure_url, publicId: result.public_id, mediaType };
+    }
+    const team = teamForCategory[category];
+    const issue = await Issue.create({
+      title: title.trim(), description: description.trim(), category, location: location.trim(), team,
+      imageUrl: uploadedMedia?.mediaType === 'image' ? uploadedMedia.url : '',
+      imagePublicId: uploadedMedia?.mediaType === 'image' ? uploadedMedia.publicId : '',
+      videoUrl: uploadedMedia?.mediaType === 'video' ? uploadedMedia.url : '',
+      videoPublicId: uploadedMedia?.mediaType === 'video' ? uploadedMedia.publicId : '',
+      author: req.user._id, followers: [req.user._id], updates: [{ author: req.user._id, status: 'Open', note: 'Issue reported' }]
+    });
+    createdIssueId = issue._id;
     res.status(201).json({ issue: issueJson(await populated(Issue.findById(issue._id)), req.user) });
-  } catch (error) { next(error); }
-});
+  } catch (error) {
+    if (createdIssueId) await Issue.deleteOne({ _id: createdIssueId }).catch(cleanupError => console.error('Could not clean up failed issue creation:', cleanupError.message));
+    if (uploadedMedia?.publicId) await deleteIssueMedia(uploadedMedia.publicId, uploadedMedia.mediaType).catch(cleanupError => console.error('Could not clean up failed issue media upload:', cleanupError.message));
+    const cloudinaryStatus = error.http_code || error.error?.http_code || error.statusCode;
+    if (cloudinaryStatus === 403) {
+      console.error('Cloudinary denied this signed upload (HTTP 403). Check Cloudinary upload restrictions and the product environment settings.');
+      return res.status(502).json({ message: 'Cloudinary denied this upload. Review upload restrictions in the Cloudinary product environment; HTTP 403 means the request was disallowed.' });
+    }
+    if (cloudinaryStatus || error.name === 'UnexpectedResponse') console.error('Cloudinary issue media upload failed:', { status: cloudinaryStatus || null, message: error.message });
+    next(error);
+  }
+};
+
+router.post('/video', requireAuth, uploadVideo.single('video'), createIssue);
+router.post('/', requireAuth, uploadImage.single('image'), createIssue);
 
 router.get('/staff/queue', requireAuth, requireStaff, async (req, res, next) => {
   try {
@@ -92,19 +116,6 @@ router.post('/:id/vote', requireAuth, async (req, res, next) => {
     if (response !== 'clear') issue.votes.push({ user: req.user._id, response });
     await issue.save();
     res.json({ issue: issueJson(await populated(Issue.findById(issue._id)), req.user) });
-  } catch (error) { next(error); }
-});
-
-router.post('/:id/comments', requireAuth, async (req, res, next) => {
-  try {
-    const body = String(req.body.body || '').trim();
-    if (!body || body.length > 1200) return res.status(400).json({ message: 'Comment must be between 1 and 1,200 characters.' });
-    const issue = await Issue.findById(req.params.id);
-    if (!issue) return res.status(404).json({ message: 'Issue not found.' });
-    issue.comments.push({ author: req.user._id, body, staffReply: ['staff', 'admin'].includes(req.user.role) });
-    if (!issue.followers.some(id => id.toString() === req.user._id.toString())) issue.followers.push(req.user._id);
-    await issue.save();
-    res.status(201).json({ issue: issueJson(await populated(Issue.findById(issue._id)), req.user) });
   } catch (error) { next(error); }
 });
 

@@ -6,7 +6,8 @@ const userSchema = new mongoose.Schema({
   password: { type: String, required: true, select: false },
   role: { type: String, enum: ['student', 'staff', 'admin'], default: 'student' },
   team: { type: String, enum: ['Facilities', 'IT', 'Security', 'Dining', 'Grounds', 'General'], default: 'General' },
-  avatarColor: { type: String, default: '#d8f36a' }
+  avatarColor: { type: String, default: '#d8f36a' },
+  myComments: [{ type: mongoose.Schema.Types.ObjectId, ref: 'Comment' }]
 }, { timestamps: true });
 
 export default mongoose.model('User', userSchema);

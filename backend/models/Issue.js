@@ -8,6 +8,8 @@ const issueSchema = new mongoose.Schema({
   team: { type: String, enum: ['Facilities', 'IT', 'Security', 'Dining', 'Grounds', 'General'], required: true },
   imageUrl: { type: String, default: '' },
   imagePublicId: { type: String, default: '' },
+  videoUrl: { type: String, default: '' },
+  videoPublicId: { type: String, default: '' },
   author: { type: mongoose.Schema.Types.ObjectId, ref: 'User', required: true },
   status: { type: String, enum: ['Open', 'Acknowledged', 'In progress', 'Resolved', 'Reopened'], default: 'Open' },
   votes: [{ user: { type: mongoose.Schema.Types.ObjectId, ref: 'User' }, response: { type: String, enum: ['affected', 'not-affected'] } }],
@@ -18,6 +20,7 @@ const issueSchema = new mongoose.Schema({
     staffReply: { type: Boolean, default: false },
     createdAt: { type: Date, default: Date.now }
   }],
+  commentIds: [{ type: mongoose.Schema.Types.ObjectId, ref: 'Comment' }],
   updates: [{
     author: { type: mongoose.Schema.Types.ObjectId, ref: 'User', required: true },
     status: { type: String, required: true },
