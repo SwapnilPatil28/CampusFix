@@ -1,5 +1,7 @@
 import mongoose from 'mongoose';
 
+export const REPORTED_UNRESOLVED_STATUS = 'Reported still unresolved';
+
 const issueSchema = new mongoose.Schema({
   title: { type: String, required: true, trim: true, maxlength: 120 },
   description: { type: String, required: true, trim: true, maxlength: 3000 },
@@ -11,7 +13,7 @@ const issueSchema = new mongoose.Schema({
   videoUrl: { type: String, default: '' },
   videoPublicId: { type: String, default: '' },
   author: { type: mongoose.Schema.Types.ObjectId, ref: 'User', required: true },
-  status: { type: String, enum: ['Open', 'Acknowledged', 'In progress', 'Resolved', 'Reopened'], default: 'Open' },
+  status: { type: String, enum: ['Open', 'Acknowledged', 'In progress', 'Resolved', 'Reopened', REPORTED_UNRESOLVED_STATUS], default: 'Open' },
   votes: [{ user: { type: mongoose.Schema.Types.ObjectId, ref: 'User' }, response: { type: String, enum: ['affected', 'not-affected'] } }],
   followers: [{ type: mongoose.Schema.Types.ObjectId, ref: 'User' }],
   reopenRequests: [{

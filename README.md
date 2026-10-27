@@ -15,7 +15,7 @@ CampusFix is for campus students and the staff responsible for campus operations
 1. **Report an issue:** Sign in, describe what is wrong, choose a category and campus location, and optionally attach one photo (up to 5 MB) or video (up to 50 MB). The backend uploads the media and creates the report in one request.
 2. **Show campus impact:** Students can mark “I’m affected” or “Haven’t experienced it.” Each account has one current response per report and can change or clear it.
 3. **Discuss and follow:** Students add comments and follow reports. Following can be viewed from the **Following** sidebar filter; new status updates and the timeline are shown on the issue page.
-4. **Resolve transparently:** Staff see an oldest-first queue for their team, open a report, and publish a status and note. Students can see the full update history. If a resolved issue is still happening, students can flag it for staff review; staff can reopen it and continue the timeline.
+4. **Resolve transparently:** Staff see an oldest-first queue for their team, open a report, and publish a status and note. The dashboard’s live status totals include reopened reports in the Open count. Students can see the full update history. If a resolved issue is still happening, students other than the reporter can flag it for staff review. The first flag changes the internal status to **Reported still unresolved**, while student views continue to show **Resolved**. Staff can mark it resolved or move it back into active work. If the last student flag is withdrawn, the status returns to Resolved; when the reporting student reopens it, flags clear and it returns to the active queue.
 5. **Keep reports accurate:** A student can directly reopen their own issue only after Operations resolves it, or delete their report at any status. Deletion also removes its comments and attached Cloudinary media.
 6. **Find the right reports:** Search titles, descriptions, and locations; each search word can match anywhere in those fields, including part of a word. Filter by team, category, and status; sort by recent, trending, or oldest.
 7. **Manage an account:** Campus members register with a Scaler email. Students provide a roll number; operations staff provide a department, employee ID, and private access code. The profile page supports a photo, raised issues, comments, and followed reports.
@@ -160,6 +160,7 @@ Keep `.env` files and credentials out of Git. The example files contain placehol
 | `DELETE` | `/api/issues/:id/reopen-requests` | Withdraw your unresolved flag |
 | `PATCH` | `/api/issues/:id/status` | Staff update status and public note |
 | `GET` | `/api/issues/staff/queue` | Team-scoped unresolved issue queue |
+| `GET` | `/api/issues/staff/queue/reopen-requests` | Team-scoped resolved issues students have flagged as still unresolved |
 
 ## Deploy to Render and Vercel
 

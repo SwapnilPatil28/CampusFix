@@ -1,6 +1,6 @@
 import { Router } from 'express';
 import mongoose from 'mongoose';
-import Issue from '../models/Issue.js';
+import Issue, { REPORTED_UNRESOLVED_STATUS } from '../models/Issue.js';
 import Comment from '../models/Comment.js';
 import User from '../models/User.js';
 import { deleteIssueMedia, isCloudinaryConfigured, uploadIssueImage, uploadIssueVideo } from '../config/cloudinary.js';
@@ -12,7 +12,7 @@ const router = Router();
 const teams = ['Facilities', 'IT', 'Security', 'Dining', 'Grounds', 'General'];
 const categories = ['Facilities', 'IT', 'Security', 'Dining', 'Grounds', 'Other'];
 const teamForCategory = { Facilities: 'Facilities', IT: 'IT', Security: 'Security', Dining: 'Dining', Grounds: 'Grounds', Other: 'General' };
-const statuses = ['Open', 'Acknowledged', 'In progress', 'Resolved', 'Reopened'];
+const statuses = ['Open', 'Acknowledged', 'In progress', 'Resolved', 'Reopened', REPORTED_UNRESOLVED_STATUS];
 const escapeRegex = (value) => value.replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
 const populated = (query) => query
   .populate('author', 'name role team avatarColor avatarUrl')
@@ -22,6 +22,7 @@ const populated = (query) => query
 const issueJson = (issue, user) => {
   const raw = issue.toObject ? issue.toObject() : issue;
   const { votes, followers, commentIds = [], comments: legacyComments = [], reopenRequests = [], ...publicIssue } = raw;
+  if (!['staff', 'admin'].includes(user?.role) && publicIssue.status === REPORTED_UNRESOLVED_STATUS) publicIssue.status = 'Resolved';
   const uid = user?._id?.toString();
   const comments = [...legacyComments.map(comment => ({ ...comment, legacy: true })), ...commentIds.map(comment => ({ _id: comment._id, author: comment.author, body: comment.body, staffReply: comment.staffReply, likes: comment.likes || 0, likedBy: comment.likedBy || [], createdAt: comment.createdAt }))].sort((a, b) => new Date(a.createdAt) - new Date(b.createdAt));
   return { ...publicIssue, comments, affectedCount: votes.filter(v => v.response === 'affected').length, notAffectedCount: votes.filter(v => v.response === 'not-affected').length, myVote: votes.find(v => v.user?._id?.toString() === uid || v.user?.toString() === uid)?.response || null, isFollowing: followers.some(f => f._id?.toString() === uid || f.toString() === uid), commentsCount: comments.length, reopenRequestCount: reopenRequests.length, hasRequestedReopen: reopenRequests.some(request => (request.user?._id || request.user)?.toString() === uid) };
@@ -35,7 +36,7 @@ router.get('/', optionalAuth, async (req, res, next) => {
       if (!req.user) return res.json({ issues: [], total: 0, page: 1, pages: 0, summary: {} });
       filter.followers = req.user._id;
     }
-    if (status && statuses.includes(status)) filter.status = status;
+    if (status && statuses.includes(status)) filter.status = status === 'Resolved' ? { $in: ['Resolved', REPORTED_UNRESOLVED_STATUS] } : status;
     if (team && teams.includes(team)) filter.team = team;
     if (category && categories.includes(category)) filter.category = category;
     const searchQuery = typeof q === 'string' ? q.trim() : '';
@@ -102,9 +103,35 @@ router.post('/', requireAuth, uploadImage.single('image'), createIssue);
 
 router.get('/staff/queue', requireAuth, requireStaff, async (req, res, next) => {
   try {
+    const teamFilter = req.user.role === 'admin' ? {} : { team: req.user.team };
+    const activeFilter = { ...teamFilter, status: { $nin: ['Resolved', REPORTED_UNRESOLVED_STATUS] } };
+    const [issues, groupedCounts, total] = await Promise.all([
+      populated(Issue.find(activeFilter).sort({ createdAt: 1 }).limit(100)),
+      Issue.aggregate([{ $match: activeFilter }, { $group: { _id: '$status', count: { $sum: 1 } } }]),
+      Issue.countDocuments(activeFilter)
+    ]);
+    const counts = Object.fromEntries(groupedCounts.map(({ _id, count }) => [_id, count]));
+    res.json({
+      issues: issues.map(issue => issueJson(issue, req.user)),
+      total,
+      stats: {
+        Open: (counts.Open || 0) + (counts.Reopened || 0),
+        Acknowledged: counts.Acknowledged || 0,
+        'In progress': counts['In progress'] || 0
+      }
+    });
+  } catch (error) { next(error); }
+});
+
+router.get('/staff/queue/reopen-requests', requireAuth, requireStaff, async (req, res, next) => {
+  try {
     const filter = req.user.role === 'admin' ? {} : { team: req.user.team };
-    const issues = await populated(Issue.find({ ...filter, status: { $nin: ['Resolved'] } }).sort({ createdAt: 1 }).limit(100));
-    res.json({ issues: issues.map(i => issueJson(i, req.user)) });
+    const issues = await populated(Issue.find({
+      ...filter,
+      status: REPORTED_UNRESOLVED_STATUS,
+      reopenRequests: { $exists: true, $ne: [] }
+    }).sort({ 'reopenRequests.createdAt': 1, createdAt: 1 }).limit(100));
+    res.json({ issues: issues.map(issue => issueJson(issue, req.user)) });
   } catch (error) { next(error); }
 });
 
@@ -125,11 +152,11 @@ router.patch('/:id/reopen', requireAuth, async (req, res, next) => {
     if (!issue) return res.status(404).json({ message: 'Issue not found.' });
     if (issue.author.toString() !== req.user._id.toString()) return res.status(403).json({ message: 'You can only reopen an issue you reported.' });
     const resolution = issue.updates.at(-1);
-    if (issue.status !== 'Resolved' || resolution?.status !== 'Resolved') return res.status(409).json({ message: 'You can reopen this issue only after operations marks it resolved.' });
+    if (!['Resolved', REPORTED_UNRESOLVED_STATUS].includes(issue.status) || resolution?.status !== 'Resolved') return res.status(409).json({ message: 'You can reopen this issue only after operations marks it resolved.' });
     const resolver = await User.findById(resolution.author).select('role');
     if (!resolver || !['staff', 'admin'].includes(resolver.role)) return res.status(409).json({ message: 'Only an operations resolution can be reopened by the reporter.' });
     const reopened = await Issue.findOneAndUpdate(
-      { _id: issue._id, author: req.user._id, status: 'Resolved' },
+      { _id: issue._id, author: req.user._id, status: { $in: ['Resolved', REPORTED_UNRESOLVED_STATUS] } },
       { $set: { status: 'Reopened', resolvedAt: null, reopenRequests: [] }, $push: { updates: { author: req.user._id, status: 'Reopened', note: 'Reopened by the student who reported the issue.' } } },
       { new: true, runValidators: true }
     );
@@ -192,13 +219,17 @@ router.post('/:id/reopen-requests', requireAuth, async (req, res, next) => {
   try {
     if (req.user.role !== 'student') return res.status(403).json({ message: 'Only students can report a resolved issue as still unresolved.' });
     if (!mongoose.isValidObjectId(req.params.id)) return res.status(404).json({ message: 'Issue not found.' });
-    const result = await Issue.updateOne(
-      { _id: req.params.id, status: 'Resolved', 'reopenRequests.user': { $ne: req.user._id } },
-      { $push: { reopenRequests: { user: req.user._id } }, $addToSet: { followers: req.user._id } }
+    const existing = await Issue.findById(req.params.id).select('author status');
+    if (!existing) return res.status(404).json({ message: 'Issue not found.' });
+    if (existing.author.toString() === req.user._id.toString()) return res.status(403).json({ message: 'The student who reported this issue cannot flag their own report as still unresolved.' });
+    if (!['Resolved', REPORTED_UNRESOLVED_STATUS].includes(existing.status)) return res.status(409).json({ message: 'Only resolved issues can be flagged as still unresolved.' });
+    await Issue.updateOne(
+      { _id: req.params.id, status: { $in: ['Resolved', REPORTED_UNRESOLVED_STATUS] }, author: { $ne: req.user._id }, 'reopenRequests.user': { $ne: req.user._id } },
+      { $set: { status: REPORTED_UNRESOLVED_STATUS }, $push: { reopenRequests: { user: req.user._id } }, $addToSet: { followers: req.user._id } }
     );
     let issue = await Issue.findById(req.params.id);
     if (!issue) return res.status(404).json({ message: 'Issue not found.' });
-    if (result.modifiedCount === 0 && issue.status !== 'Resolved') return res.status(409).json({ message: 'Only resolved issues can be flagged as still unresolved.' });
+    if (!['Resolved', REPORTED_UNRESOLVED_STATUS].includes(issue.status)) return res.status(409).json({ message: 'Only resolved issues can be flagged as still unresolved.' });
     issue = await populated(Issue.findById(req.params.id));
     res.json({ issue: issueJson(issue, req.user) });
   } catch (error) { next(error); }
@@ -207,8 +238,15 @@ router.post('/:id/reopen-requests', requireAuth, async (req, res, next) => {
 router.delete('/:id/reopen-requests', requireAuth, async (req, res, next) => {
   try {
     if (!mongoose.isValidObjectId(req.params.id)) return res.status(404).json({ message: 'Issue not found.' });
-    const issue = await Issue.findByIdAndUpdate(req.params.id, { $pull: { reopenRequests: { user: req.user._id } } }, { new: true });
+    let issue = await Issue.findByIdAndUpdate(req.params.id, { $pull: { reopenRequests: { user: req.user._id } } }, { new: true });
     if (!issue) return res.status(404).json({ message: 'Issue not found.' });
+    if (issue.status === REPORTED_UNRESOLVED_STATUS && issue.reopenRequests.length === 0) {
+      issue = await Issue.findOneAndUpdate(
+        { _id: issue._id, status: REPORTED_UNRESOLVED_STATUS, reopenRequests: { $size: 0 } },
+        { $set: { status: 'Resolved' } },
+        { new: true }
+      ) || issue;
+    }
     res.json({ issue: issueJson(await populated(Issue.findById(issue._id)), req.user) });
   } catch (error) { next(error); }
 });
@@ -222,9 +260,14 @@ router.patch('/:id/status', requireAuth, requireStaff, async (req, res, next) =>
     const issue = await Issue.findById(req.params.id);
     if (!issue) return res.status(404).json({ message: 'Issue not found.' });
     if (req.user.role !== 'admin' && req.user.team !== issue.team && req.user.team !== 'General') return res.status(403).json({ message: 'This issue is routed to another operations team.' });
+    if (status === REPORTED_UNRESOLVED_STATUS && issue.status !== REPORTED_UNRESOLVED_STATUS) return res.status(400).json({ message: 'This status is set automatically when students report a resolved issue as still unresolved.' });
     if (issue.status === status && !publicNote) return res.status(400).json({ message: 'Choose a new status or add a public update.' });
-    if (status !== 'Resolved') issue.resolvedAt = null;
+    if (status !== 'Resolved') {
+      issue.resolvedAt = null;
+      if (issue.status === 'Resolved' || issue.status === REPORTED_UNRESOLVED_STATUS) issue.reopenRequests = [];
+    }
     else if (issue.status !== 'Resolved') issue.resolvedAt = new Date();
+    if (status === 'Resolved') issue.reopenRequests = [];
     if (status === 'Reopened' && issue.status !== 'Reopened') issue.reopenRequests = [];
     issue.status = status;
     issue.updates.push({ author: req.user._id, status, note: publicNote });

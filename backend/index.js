@@ -5,6 +5,7 @@ import cors from 'cors';
 import helmet from 'helmet';
 import cookieParser from 'cookie-parser';
 import morgan from 'morgan';
+import Issue, { REPORTED_UNRESOLVED_STATUS } from './models/Issue.js';
 import authRoutes from './routes/auth.routes.js';
 import issueRoutes from './routes/issue.routes.js';
 import issueCommentRoutes from './routes/comment.routes.js';
@@ -40,5 +41,12 @@ if (!process.env.MONGODB_URL || !process.env.JWT_SECRET) {
   process.exit(1);
 }
 mongoose.connect(process.env.MONGODB_URL)
-  .then(() => app.listen(port, () => console.log(`CampusFix API listening on ${port}`)))
+  .then(async () => {
+    const migration = await Issue.updateMany(
+      { status: 'Resolved', reopenRequests: { $exists: true, $ne: [] } },
+      { $set: { status: REPORTED_UNRESOLVED_STATUS } }
+    );
+    if (migration.modifiedCount) console.log(`Migrated ${migration.modifiedCount} issue(s) with student follow-up reports.`);
+    app.listen(port, () => console.log(`CampusFix API listening on ${port}`));
+  })
   .catch((error) => { console.error('MongoDB connection failed:', error.message); process.exit(1); });

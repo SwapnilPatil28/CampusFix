@@ -5,7 +5,7 @@ import jwt from 'jsonwebtoken';
 import rateLimit from 'express-rate-limit';
 import mongoose from 'mongoose';
 import User from '../models/User.js';
-import Issue from '../models/Issue.js';
+import Issue, { REPORTED_UNRESOLVED_STATUS } from '../models/Issue.js';
 import Comment from '../models/Comment.js';
 import { optionalAuth, requireAuth } from '../middleware/auth.js';
 import { isCloudinaryConfigured, uploadProfileImage, deleteIssueMedia } from '../config/cloudinary.js';
@@ -15,6 +15,7 @@ const router = Router();
 const authLimiter = rateLimit({ windowMs: 15 * 60 * 1000, limit: 25, standardHeaders: true, legacyHeaders: false });
 const profileUploadLimiter = rateLimit({ windowMs: 15 * 60 * 1000, limit: 10, standardHeaders: true, legacyHeaders: false });
 const publicUser = (user) => ({ id: user._id, name: user.name, email: user.email, role: user.role, team: user.team, rollNo: user.rollNo || '', employeeId: user.employeeId || '', avatarColor: user.avatarColor, avatarUrl: user.avatarUrl || '' });
+const visibleIssueStatus = (status, viewer) => status === REPORTED_UNRESOLVED_STATUS && !['staff', 'admin'].includes(viewer?.role) ? 'Resolved' : status;
 const allowedEmail = (email) => {
   const normalized = String(email || '').toLowerCase().trim();
   return /^[^\s@]+@(?:sst\.scaler\.com|scaler\.com)$/.test(normalized) ? normalized : '';
@@ -78,13 +79,17 @@ router.get('/profile/:id', requireAuth, async (req, res, next) => {
     if (!mongoose.isValidObjectId(req.params.id)) return res.status(404).json({ message: 'Profile not found.' });
     const user = await User.findById(req.params.id);
     if (!user || !allowedEmail(user.email)) return res.status(404).json({ message: 'Profile not found.' });
-    const [issues, savedIssues, comments] = await Promise.all([
+    const [ownedIssues, followedIssues, rawComments] = await Promise.all([
       Issue.find({ author: user._id }).sort({ createdAt: -1 }).select('title category location status createdAt').lean(),
       Issue.find({ followers: user._id, author: { $ne: user._id } }).sort({ updatedAt: -1 }).select('title category location status createdAt updatedAt').lean(),
       Comment.find({ author: user._id }).sort({ createdAt: -1 }).populate('issue', 'title status category').lean()
     ]);
+    const formatIssue = issue => ({ ...issue, status: visibleIssueStatus(issue.status, req.user) });
+    const issues = ownedIssues.map(formatIssue);
+    const savedIssues = followedIssues.map(formatIssue);
+    const comments = rawComments.map(comment => comment.issue ? { ...comment, issue: formatIssue(comment.issue) } : comment);
     const legacy = await Issue.find({ 'comments.author': user._id }).select('title status category comments').lean();
-    const legacyComments = legacy.flatMap(issue => issue.comments.filter(comment => comment.author?.toString() === user._id.toString()).map(comment => ({ _id: comment._id, body: comment.body, createdAt: comment.createdAt, issue: { _id: issue._id, title: issue.title, status: issue.status, category: issue.category } })));
+    const legacyComments = legacy.flatMap(issue => issue.comments.filter(comment => comment.author?.toString() === user._id.toString()).map(comment => ({ _id: comment._id, body: comment.body, createdAt: comment.createdAt, issue: { _id: issue._id, title: issue.title, status: visibleIssueStatus(issue.status, req.user), category: issue.category } })));
     const allComments = [...comments, ...legacyComments].sort((a, b) => new Date(b.createdAt) - new Date(a.createdAt));
     res.json({ user: publicUser(user), isOwner: Boolean(req.user && req.user._id.toString() === user._id.toString()), issues, savedIssues, comments: allComments });
   } catch (error) { next(error); }
