@@ -11,12 +11,15 @@ import issueCommentRoutes from './routes/comment.routes.js';
 import { errorHandler, notFound } from './middleware/errors.js';
 
 const app = express();
-const frontendOrigin = (process.env.FRONTEND_URL || 'http://localhost:5173').replace(/\/$/, '');
+const frontendOrigins = new Set((process.env.FRONTEND_URL || 'http://localhost:5173')
+  .split(',')
+  .map((origin) => origin.trim().replace(/\/$/, ''))
+  .filter(Boolean));
 app.set('trust proxy', 1);
 app.use(helmet({ crossOriginResourcePolicy: { policy: 'cross-origin' } }));
-app.use(cors({ origin: frontendOrigin, credentials: true }));
+app.use(cors({ origin: (origin, callback) => callback(null, origin && frontendOrigins.has(origin) ? origin : false), credentials: true }));
 app.use((req, res, next) => {
-  if (['POST', 'PATCH', 'PUT', 'DELETE'].includes(req.method) && req.headers.origin && req.headers.origin !== frontendOrigin) {
+  if (['POST', 'PATCH', 'PUT', 'DELETE'].includes(req.method) && req.headers.origin && !frontendOrigins.has(req.headers.origin)) {
     return res.status(403).json({ message: 'Requests from this website are not allowed.' });
   }
   next();

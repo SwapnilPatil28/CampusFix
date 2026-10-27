@@ -34,6 +34,5 @@ const issueSchema = new mongoose.Schema({
   resolvedAt: { type: Date, default: null }
 }, { timestamps: true });
 
-issueSchema.index({ title: 'text', description: 'text', location: 'text' });
 issueSchema.index({ status: 1, team: 1, createdAt: -1 });
 export default mongoose.model('Issue', issueSchema);

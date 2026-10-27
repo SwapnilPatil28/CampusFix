@@ -13,6 +13,7 @@ const teams = ['Facilities', 'IT', 'Security', 'Dining', 'Grounds', 'General'];
 const categories = ['Facilities', 'IT', 'Security', 'Dining', 'Grounds', 'Other'];
 const teamForCategory = { Facilities: 'Facilities', IT: 'IT', Security: 'Security', Dining: 'Dining', Grounds: 'Grounds', Other: 'General' };
 const statuses = ['Open', 'Acknowledged', 'In progress', 'Resolved', 'Reopened'];
+const escapeRegex = (value) => value.replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
 const populated = (query) => query
   .populate('author', 'name role team avatarColor avatarUrl')
   .populate('comments.author', 'name role team avatarColor avatarUrl')
@@ -37,7 +38,15 @@ router.get('/', optionalAuth, async (req, res, next) => {
     if (status && statuses.includes(status)) filter.status = status;
     if (team && teams.includes(team)) filter.team = team;
     if (category && categories.includes(category)) filter.category = category;
-    if (q?.trim()) filter.$text = { $search: String(q).trim() };
+    const searchQuery = typeof q === 'string' ? q.trim() : '';
+    if (searchQuery) {
+      const terms = [...new Set(searchQuery.toLowerCase().split(/\s+/).filter(Boolean))].slice(0, 8);
+      filter.$and = terms.map((term) => ({
+        $or: ['title', 'description', 'location'].map((field) => ({
+          [field]: { $regex: escapeRegex(term), $options: 'i' }
+        }))
+      }));
+    }
     const pageNum = Math.max(1, Math.min(1000, Number.parseInt(page, 10) || 1));
     const order = sort === 'oldest' ? { createdAt: 1 } : { createdAt: -1 };
     const [issues, total, counts] = await Promise.all([

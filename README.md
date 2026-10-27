@@ -17,7 +17,7 @@ CampusFix is for campus students and the staff responsible for campus operations
 3. **Discuss and follow:** Students add comments and follow reports. Following can be viewed from the **Following** sidebar filter; new status updates and the timeline are shown on the issue page.
 4. **Resolve transparently:** Staff see an oldest-first queue for their team, open a report, and publish a status and note. Students can see the full update history. If a resolved issue is still happening, students can flag it for staff review; staff can reopen it and continue the timeline.
 5. **Keep reports accurate:** A student can directly reopen their own issue only after Operations resolves it, or delete their report at any status. Deletion also removes its comments and attached Cloudinary media.
-6. **Find the right reports:** Search titles, descriptions, and locations; filter by team, category, and status; sort by recent, trending, or oldest.
+6. **Find the right reports:** Search titles, descriptions, and locations; each search word can match anywhere in those fields, including part of a word. Filter by team, category, and status; sort by recent, trending, or oldest.
 7. **Manage an account:** Campus members register with a Scaler email. Students provide a roll number; operations staff provide a department, employee ID, and private access code. The profile page supports a photo, raised issues, comments, and followed reports.
 
 ## Roles and permissions
@@ -123,7 +123,7 @@ The app opens at [http://localhost:5173](http://localhost:5173). The API health 
 | --- | --- | --- | --- |
 | `PORT` | Backend | No | Express port; defaults to `5000` |
 | `NODE_ENV` | Backend | No | Set `production` for secure cross-site cookies |
-| `FRONTEND_URL` | Backend | No | Allowed browser origin for credentialed API requests |
+| `FRONTEND_URL` | Backend | Production | Comma-separated exact browser origins allowed to make credentialed API requests; local default is `http://localhost:5173` |
 | `MONGODB_URL` | Backend | Yes | MongoDB connection string |
 | `JWT_SECRET` | Backend | Yes | Secret used to sign session tokens; keep private |
 | `OPS_ACCESS_CODE` | Backend | For operations registration | Private code shared with authorized staff; never expose it in the frontend |
@@ -161,13 +161,75 @@ Keep `.env` files and credentials out of Git. The example files contain placehol
 | `PATCH` | `/api/issues/:id/status` | Staff update status and public note |
 | `GET` | `/api/issues/staff/queue` | Team-scoped unresolved issue queue |
 
-## Deployment
+## Deploy to Render and Vercel
 
-1. Create a MongoDB Atlas database and allow the backend host to connect. Use a restricted database user and a strong JWT secret.
-2. Deploy `backend` as a Node service with `npm install` as the build command and `npm start` as the start command. Configure `MONGODB_URL`, `JWT_SECRET`, all three Cloudinary values, `NODE_ENV=production`, and `FRONTEND_URL` in the host’s secret settings.
-3. Deploy `frontend` as a Vite static app with `npm run build` and `dist` as the output directory. Set `VITE_API_URL` to the deployed API origin plus `/api`.
-4. Set `FRONTEND_URL` to the exact deployed frontend origin. Production auth cookies use `Secure` and `SameSite=None` to support a separately hosted frontend and API.
-5. Report media is stored in Cloudinary, so it persists independently from the backend service’s filesystem. The backend accepts one image up to 5 MB or one video up to 50 MB.
+The repository is a monorepo with two deployable applications. Deploy the API first so you have its public URL, then deploy the frontend. Do not add `.env` files or credentials to GitHub.
+
+### 1. Prepare MongoDB Atlas and Cloudinary
+
+- Create a MongoDB Atlas database and a database user with access to the CampusFix database. Configure Atlas network access so the Render service can connect. Keep the database password URL-encoded if it contains reserved URL characters.
+- Confirm the Cloudinary account has the `cloud_name`, API key, and API secret needed for signed server uploads. Images and videos are uploaded by the Render API, not directly by the browser.
+- Generate a unique, long random `JWT_SECRET` and choose a private `OPS_ACCESS_CODE`. The latter allows trusted operations staff to register; it does not grant administrator access.
+
+### 2. Deploy the backend on Render
+
+Create a **Web Service** from the GitHub repository with these settings:
+
+| Setting | Value |
+| --- | --- |
+| Root Directory | `backend` |
+| Runtime | Node |
+| Build Command | `npm install` |
+| Start Command | `npm start` |
+| Health Check Path | `/api/health` |
+
+Add these environment variables in the Render service dashboard (use real values there, never in this README or Git):
+
+| Variable | Value |
+| --- | --- |
+| `NODE_ENV` | `production` |
+| `MONGODB_URL` | Your Atlas connection string |
+| `JWT_SECRET` | Your generated private secret |
+| `OPS_ACCESS_CODE` | Your private operations registration code |
+| `CLOUDINARY_CLOUD_NAME` | Cloudinary cloud name |
+| `CLOUDINARY_API_KEY` | Cloudinary API key |
+| `CLOUDINARY_API_SECRET` | Cloudinary API secret |
+| `FRONTEND_URL` | Exact allowed frontend origins, comma-separated if needed, e.g. `https://campusfix.vercel.app,https://campusfix-git-main-yourname.vercel.app` |
+
+Render supplies `PORT`; the server uses it automatically. After deploy, open `https://YOUR-RENDER-SERVICE.onrender.com/api/health` and confirm it returns a JSON `status: "ok"` response. Copy the service origin (without `/api`) for the frontend setting.
+
+### 3. Deploy the frontend on Vercel
+
+Import the same GitHub repository as a Vercel project and set:
+
+| Setting | Value |
+| --- | --- |
+| Root Directory | `frontend` |
+| Framework Preset | Vite (or Other) |
+| Build Command | `npm run build` |
+| Output Directory | `dist` |
+| Install Command | `npm install` |
+
+Add the Vercel environment variable `VITE_API_URL` with the full API base URL, for example `https://YOUR-RENDER-SERVICE.onrender.com/api`. Set it for the Production environment (and Preview too if you plan to use preview deployments). Vite embeds this value at build time, so redeploy after changing it.
+
+`frontend/vercel.json` already rewrites client-side routes to `index.html`, so directly opening routes such as `/issues/:id` or `/profile/:id` works after deployment.
+
+### 4. Connect the two deployed origins
+
+Once Vercel provides the production domain, set Render’s `FRONTEND_URL` to that exact origin (scheme and host only; no trailing slash or path), save the variable, and redeploy/restart the Render service. To use Vercel preview deployments, add each exact preview origin to the comma-separated list; `*.vercel.app` wildcards are not accepted. If you add a custom domain to Vercel, include that origin too.
+
+Production sign-in uses an HttpOnly, Secure cookie with `SameSite=None` and Axios sends credentials. This is necessary for the separate Vercel and Render domains. Verify sign-in, refresh, sign-out, and an authenticated action in a normal browser session after deployment. Browser privacy settings that block third-party cookies can affect a cross-domain cookie. For the most reliable browser session behavior, use a custom domain and serve the API under the same site (for example, `campus.example.edu` and `api.campus.example.edu`) or configure a Vercel external rewrite for `/api/:path*` to the Render API and set `VITE_API_URL=/api`. Keep the SPA fallback rewrite after the API rewrite if you add one.
+
+### 5. Smoke-check the live app
+
+- Open the Vercel home page and directly load an issue and profile URL.
+- Register a student with an allowed Scaler email, sign in, and refresh to confirm the session persists.
+- Create a report, comment on it, and try search/filtering.
+- Test a photo and (if needed) a video upload to confirm Render, Cloudinary, and request size settings work together.
+- Register an operations account using the private access code, then confirm its team queue and status update.
+- Open the site in a private/incognito window to verify the public feed works without a pre-existing session. Do not use demo credentials; none are configured.
+
+Report media is stored in Cloudinary, so it persists independently of Render’s filesystem. The API accepts an image up to 5 MB or video up to 50 MB. A Render free service may take time to wake after inactivity; wait for the first health check before testing the frontend.
 
 ## Project structure
 
