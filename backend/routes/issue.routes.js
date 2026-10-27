@@ -134,12 +134,16 @@ router.patch('/:id/status', requireAuth, requireStaff, async (req, res, next) =>
   try {
     const { status, note } = req.body;
     if (!statuses.includes(status)) return res.status(400).json({ message: 'Choose a valid issue status.' });
+    if (note !== undefined && typeof note !== 'string') return res.status(400).json({ message: 'Public update must be text.' });
+    const publicNote = (note || '').trim().slice(0, 500);
     const issue = await Issue.findById(req.params.id);
     if (!issue) return res.status(404).json({ message: 'Issue not found.' });
     if (req.user.role !== 'admin' && req.user.team !== issue.team && req.user.team !== 'General') return res.status(403).json({ message: 'This issue is routed to another operations team.' });
+    if (issue.status === status && !publicNote) return res.status(400).json({ message: 'Choose a new status or add a public update.' });
+    if (status !== 'Resolved') issue.resolvedAt = null;
+    else if (issue.status !== 'Resolved') issue.resolvedAt = new Date();
     issue.status = status;
-    issue.resolvedAt = status === 'Resolved' ? new Date() : null;
-    issue.updates.push({ author: req.user._id, status, note: String(note || '').trim().slice(0, 500) });
+    issue.updates.push({ author: req.user._id, status, note: publicNote });
     await issue.save();
     res.json({ issue: issueJson(await populated(Issue.findById(issue._id)), req.user) });
   } catch (error) { next(error); }
