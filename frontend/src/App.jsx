@@ -3,10 +3,10 @@ import { Link, NavLink, Route, Routes, useLocation, useNavigate, useParams } fro
 import axios from 'axios';
 import { AnimatePresence, motion } from 'framer-motion';
 import {
-  ArrowLeft, ArrowRight, Bookmark, Check, CheckCircle2, CircleHelp,
+  ArrowLeft, ArrowRight, Bookmark, Camera, Check, CheckCircle2, ChevronDown, CircleHelp,
   ClipboardList, Clock3, Compass, Hash, HeartHandshake, ImagePlus, LogOut,
-  MapPin, Menu, MessageCircle, PanelLeftClose, PanelLeftOpen, Search, Send, ShieldCheck,
-  SlidersHorizontal, Sparkles, ThumbsDown, ThumbsUp, Users, Wrench, X, Zap
+  MapPin, Menu, MessageCircle, PanelLeftClose, PanelLeftOpen, RotateCcw, Search, Send, ShieldCheck,
+  SlidersHorizontal, Sparkles, ThumbsDown, ThumbsUp, Trash2, UserRound, Users, Wrench, X, Zap
 } from 'lucide-react';
 import { toast } from 'react-toastify';
 
@@ -29,7 +29,7 @@ const ago = (date) => {
 const asset = (url) => !url ? '' : url.startsWith('http') ? url : `${(import.meta.env.VITE_API_URL || 'http://localhost:5000/api').replace(/\/api\/?$/, '')}${url}`;
 
 function Avatar({ person, size = 'md', className = '' }) {
-  return <div className={`avatar avatar-${size} ${className}`} style={{ background: person?.avatarColor || '#dff187' }} title={person?.name}>{initials(person?.name)}</div>;
+  return <div className={`avatar avatar-${size} ${className}`} style={{ background: person?.avatarColor || '#dff187' }} title={person?.name}>{person?.avatarUrl ? <img src={person.avatarUrl} alt="" /> : initials(person?.name)}</div>;
 }
 
 function Pill({ children, className = '' }) { return <span className={`pill ${className}`}>{children}</span>; }
@@ -53,11 +53,22 @@ function App() {
   const [mobileNav, setMobileNav] = useState(false);
   const [navCollapsed, setNavCollapsed] = useState(() => localStorage.getItem('campusfix-nav-collapsed') === 'true');
   const searchInputRef = useRef(null);
+  const accountMenuRef = useRef(null);
+  const [accountMenuOpen, setAccountMenuOpen] = useState(false);
   const location = useLocation();
   const navigate = useNavigate();
 
   useEffect(() => { API.get('/auth/me').then(({ data }) => setUser(data.user)).catch(() => {}).finally(() => setAuthChecked(true)); }, []);
   useEffect(() => { setMobileNav(false); window.scrollTo({ top: 0, behavior: 'smooth' }); }, [location.pathname]);
+  useEffect(() => {
+    const close = event => {
+      if (event.type === 'keydown' && event.key === 'Escape') setAccountMenuOpen(false);
+      if (event.type === 'mousedown' && !accountMenuRef.current?.contains(event.target)) setAccountMenuOpen(false);
+    };
+    document.addEventListener('mousedown', close);
+    document.addEventListener('keydown', close);
+    return () => { document.removeEventListener('mousedown', close); document.removeEventListener('keydown', close); };
+  }, []);
   useEffect(() => {
     const focusSearch = event => {
       const target = event.target;
@@ -82,7 +93,7 @@ function App() {
       <button className="nav-collapse" onClick={toggleSidebar} title={navCollapsed ? 'Expand navigation' : 'Collapse navigation'} aria-label={navCollapsed ? 'Expand navigation' : 'Collapse navigation'}>{navCollapsed ? <PanelLeftOpen size={18} /> : <PanelLeftClose size={18} />}</button>
       <div className="top-search"><Search size={17} /><input ref={searchInputRef} value={search} onChange={e => setSearch(e.target.value)} placeholder="Search campus issues..." aria-label="Search campus issues" /><kbd>/</kbd></div>
       <div className="top-actions">
-        {user ? <button className="account-chip" onClick={signOut} title="Sign out"><Avatar person={user} size="sm" /><span className="account-name">{user.name.split(' ')[0]}</span><LogOut size={15} /></button> : <><button className="button button-quiet top-signin" onClick={() => setAuthOpen(true)}>Sign in</button><button className="button button-dark top-join" onClick={() => setAuthOpen(true)}>Join campusfix <ArrowRight size={16} /></button></>}
+        {user ? <div className="account-menu-wrap" ref={accountMenuRef}><button className="account-chip" aria-haspopup="menu" aria-expanded={accountMenuOpen} onClick={() => setAccountMenuOpen(open => !open)}><Avatar person={user} size="sm" /><span className="account-name">{user.name.split(' ')[0]}</span><ChevronDown size={15} /></button>{accountMenuOpen && <div className="account-menu" role="menu"><Link to={`/profile/${user.id}`} role="menuitem" onClick={() => setAccountMenuOpen(false)}><UserRound size={16} />Profile</Link><button role="menuitem" onClick={() => { setAccountMenuOpen(false); signOut(); }}><LogOut size={16} />Log out</button></div>}</div> : <><button className="button button-quiet top-signin" onClick={() => setAuthOpen(true)}>Sign in</button><button className="button button-dark top-join" onClick={() => { setAuthOpen(true); }}><span className="join-label">Join campusfix</span><ArrowRight size={16} /></button></>}
         <button className="icon-button mobile-menu" aria-label={mobileNav ? 'Close navigation' : 'Open navigation'} onClick={() => setMobileNav(v => !v)}>{mobileNav ? <X size={20} /> : <Menu size={20} />}</button>
       </div>
     </header>
@@ -103,7 +114,8 @@ function App() {
       </aside>
       <main className="main-content"><Routes>
         <Route path="/" element={<Feed search={search} requireUser={requireUser} onCompose={() => requireUser(() => setComposeOpen(true))} />} />
-        <Route path="/issues/:id" element={<IssuePage user={user} requireUser={requireUser} onBack={() => navigate('/')} />} />
+        <Route path="/issues/:id" element={<IssuePage user={user} requireUser={requireUser} onBack={() => navigate('/')} onDeleted={() => navigate('/', { replace: true })} />} />
+        <Route path="/profile/:id" element={<ProfilePage user={user} requireUser={requireUser} onUserUpdate={setUser} />} />
         <Route path="/staff" element={<StaffQueue user={user} requireUser={requireUser} />} />
         <Route path="*" element={<Feed search={search} requireUser={requireUser} onCompose={() => requireUser(() => setComposeOpen(true))} />} />
       </Routes></main>
@@ -176,7 +188,7 @@ function Feed({ search, requireUser, onCompose }) {
 
 function IssueCard({ issue, index = 0, onVote, onFollow, onOpen }) {
   return <motion.article className="issue-card" initial={{ opacity: 0, y: 12 }} animate={{ opacity: 1, y: 0 }} transition={{ delay: Math.min(index * .045, .2) }}>
-    <div className="issue-topline"><div className="issue-author"><Avatar person={issue.author} size="sm" /><div><strong>{issue.author?.name || 'Campus member'}</strong><span>{ago(issue.createdAt)} <b>·</b> <MapPin size={11} /> {issue.location}</span></div></div><button className={`follow-button ${issue.isFollowing ? 'is-following' : ''}`} title={issue.isFollowing ? 'Unfollow issue' : 'Follow issue'} onClick={onFollow}>{issue.isFollowing ? <Bookmark size={16} fill="currentColor" /> : <Bookmark size={16} />}</button></div>
+    <div className="issue-topline"><div className="issue-author"><Avatar person={issue.author} size="sm" /><div><Link className="profile-author-link" to={`/profile/${issue.author?._id || issue.author?.id}`} onClick={event => event.stopPropagation()}>{issue.author?.name || 'Campus member'}</Link><span>{ago(issue.createdAt)} <b>·</b> <MapPin size={11} /> {issue.location}</span></div></div><button className={`follow-button ${issue.isFollowing ? 'is-following' : ''}`} title={issue.isFollowing ? 'Unfollow issue' : 'Follow issue'} onClick={onFollow}>{issue.isFollowing ? <Bookmark size={16} fill="currentColor" /> : <Bookmark size={16} />}</button></div>
     <div className="issue-content" onClick={onOpen} role="button" tabIndex={0} onKeyDown={e => (e.key === 'Enter' || e.key === ' ') && onOpen()}><div className="issue-tags"><Pill className="category-pill">{issue.category}</Pill><StatusBadge status={issue.status} /></div><h3>{issue.title}</h3><p className="issue-description">{issue.description}</p>{issue.imageUrl && <img className="issue-photo" src={asset(issue.imageUrl)} alt="Photo attached to the reported issue" />}{issue.videoUrl && <video className="issue-video" src={asset(issue.videoUrl)} controls playsInline preload="metadata" aria-label="Video attached to the reported issue" onClick={e => e.stopPropagation()} onKeyDown={e => e.stopPropagation()} />}</div>
     <div className="issue-footer"><div className="impact-actions"><button className={`impact-button ${issue.myVote === 'affected' ? 'impact-selected' : ''}`} onClick={() => onVote('affected')} title="Say you’re affected"><ThumbsUp size={15} /><span>I’m affected</span><strong>{issue.affectedCount || 0}</strong></button><button className={`impact-button impact-no ${issue.myVote === 'not-affected' ? 'impact-selected-no' : ''}`} onClick={() => onVote('not-affected')} title="Say you haven’t experienced it"><ThumbsDown size={15} /><span>Not me</span><strong>{issue.notAffectedCount || 0}</strong></button></div><button className="comment-count" onClick={onOpen}><MessageCircle size={15} /> {issue.commentsCount || 0} <span>comments</span><ArrowRight size={13} /></button></div>
     {issue.updates?.length > 1 && <div className="latest-update"><span className="update-check"><Check size={12} /></span><span><strong>{issue.updates.at(-1)?.author?.name || 'Operations'} </strong>{issue.updates.at(-1)?.note || `updated status to ${issue.status.toLowerCase()}`}</span><span className="update-time">{ago(issue.updates.at(-1)?.createdAt)}</span></div>}
@@ -191,7 +203,7 @@ function CommentItem({ item, user, onLike, onReply, onDelete }) {
     <Avatar person={author} size="sm" />
     <div className="comment-body">
       <div className="comment-byline">
-        <strong>{author?.name || 'Campus member'}</strong>
+        {authorId && author?.name ? <Link className="profile-author-link" to={`/profile/${authorId}`}>{author.name}</Link> : <strong>Campus member</strong>}
         {item.staffReply && <Pill className="staff-reply-pill"><ShieldCheck size={11} /> Operations</Pill>}
         <time dateTime={item.createdAt || undefined}>{ago(item.createdAt)}</time>
       </div>
@@ -205,7 +217,7 @@ function CommentItem({ item, user, onLike, onReply, onDelete }) {
   </div>;
 }
 
-function IssuePage({ user, requireUser, onBack }) {
+function IssuePage({ user, requireUser, onBack, onDeleted }) {
   const { id } = useParams();
   const [issue, setIssue] = useState(null);
   const [loading, setLoading] = useState(true);
@@ -215,6 +227,8 @@ function IssuePage({ user, requireUser, onBack }) {
   const [statusNote, setStatusNote] = useState('');
   const [statusDraft, setStatusDraft] = useState('');
   const [savingStatus, setSavingStatus] = useState(false);
+  const [reopening, setReopening] = useState(false);
+  const [deleting, setDeleting] = useState(false);
   const requestVersion = useRef(0);
   const refresh = useCallback(async () => { const version = ++requestVersion.current; setLoading(true); setError(''); try { const { data } = await API.get(`/issues/${id}`); if (version !== requestVersion.current) return; setIssue(data.issue); setStatusDraft(data.issue.status); } catch (err) { if (version === requestVersion.current) setError(err.response?.data?.message || 'This issue could not be loaded.'); } finally { if (version === requestVersion.current) setLoading(false); } }, [id]);
   useEffect(() => { refresh(); }, [refresh]);
@@ -233,10 +247,38 @@ function IssuePage({ user, requireUser, onBack }) {
   const toggleCommentLike = async (item) => { if (!requireUser()) return; const liked = (item.likedBy || []).some(person => String(person?._id || person) === String(user.id)); try { const method = liked ? 'delete' : 'post'; const { data } = await API.request({ method, url: `/issues/${id}/comments/${item._id}/like` }); setIssue(current => ({ ...current, comments: current.comments.map(commentItem => commentItem._id === item._id ? data.comment : commentItem) })); } catch (err) { toast.error(err.response?.data?.message || 'Could not update the comment reaction.'); } };
   const replyToComment = (name) => { if (!requireUser()) return; document.querySelector('.comment-composer textarea')?.focus(); setComment(value => value ? `${value} @${name || 'member'} ` : `@${name || 'member'} `); };
   const changeStatus = async () => { if (!statusDraft || savingStatus || (!statusNote.trim() && statusDraft === issue.status)) return; setSavingStatus(true); try { const { data } = await API.patch(`/issues/${id}/status`, { status: statusDraft, note: statusNote }); setIssue(data.issue); setStatusDraft(data.issue.status); setStatusNote(''); toast.success(statusDraft === issue.status ? 'Public update posted.' : 'Issue status updated.'); } catch (err) { toast.error(err.response?.data?.message || 'Could not post this update.'); } finally { setSavingStatus(false); } };
+  const toggleReopenRequest = async () => {
+    if (!requireUser()) return;
+    const method = issue.hasRequestedReopen ? 'delete' : 'post';
+    try {
+      const { data } = await API.request({ method, url: `/issues/${id}/reopen-requests` });
+      setIssue(data.issue);
+      toast.success(method === 'post' ? 'The team will see your report that this issue is still unresolved.' : 'Your unresolved report was withdrawn.');
+    } catch (err) { toast.error(err.response?.data?.message || 'Could not update your unresolved report.'); }
+  };
+  const reopenAsReporter = async () => {
+    if (!requireUser() || reopening) return;
+    setReopening(true);
+    try {
+      const { data } = await API.patch(`/issues/${id}/reopen`);
+      setIssue(data.issue); setStatusDraft(data.issue.status);
+      toast.success('Issue reopened and returned to the operations queue.');
+    } catch (err) { toast.error(err.response?.data?.message || 'Could not reopen this issue.'); }
+    finally { setReopening(false); }
+  };
+  const deleteOwnIssue = async () => {
+    if (!reporterOwnsIssue || deleting || !window.confirm('Delete this issue? This will also remove its comments and attached media. This cannot be undone.')) return;
+    setDeleting(true);
+    try { await API.delete(`/issues/${id}`); toast.success('Your issue was deleted.'); onDeleted(); }
+    catch (err) { toast.error(err.response?.data?.message || 'Could not delete this issue.'); }
+    finally { setDeleting(false); }
+  };
   if (loading) return <div className="detail-page"><button className="back-link" onClick={onBack}><ArrowLeft size={15} /> Back to the board</button><div className="detail-skeleton" /></div>;
   if (error || !issue) return <div className="detail-page"><button className="back-link" onClick={onBack}><ArrowLeft size={15} /> Back to the board</button><div className="state-card error-state"><CircleHelp /><strong>Issue not available</strong><p>{error}</p><button className="button button-outline" onClick={refresh}>Try again</button></div></div>;
   const canManage = user && ['staff', 'admin'].includes(user.role) && (user.role === 'admin' || user.team === issue.team || user.team === 'General');
-  return <div className="detail-page"><button className="back-link" onClick={onBack}><ArrowLeft size={15} /> Back to the board</button><div className="detail-layout"><section className="detail-main"><article className="detail-card"><div className="issue-topline"><div className="issue-author"><Avatar person={issue.author} size="sm" /><div><strong>{issue.author?.name || 'Campus member'}</strong><span>{ago(issue.createdAt)} <b>·</b> <MapPin size={11} /> {issue.location}</span></div></div><StatusBadge status={issue.status} /></div><div className="issue-tags detail-tags"><Pill className="category-pill">{issue.category}</Pill></div><h1>{issue.title}</h1><p className="detail-description">{issue.description}</p>{issue.imageUrl && <img className="detail-photo" src={asset(issue.imageUrl)} alt="Photo attached to the reported issue" />}{issue.videoUrl && <video className="detail-video" src={asset(issue.videoUrl)} controls playsInline preload="metadata" aria-label="Video attached to the reported issue" />}<div className="detail-meta"><span><MapPin size={15} />{issue.location}</span><span><Clock3 size={15} />Reported {new Date(issue.createdAt).toLocaleDateString()}</span></div><div className="detail-impacts"><span className="impact-label">CAMPUS IMPACT</span><p>{issue.affectedCount} {issue.affectedCount === 1 ? 'person is' : 'people are'} affected by this</p><div className="impact-buttons"><button className={`button ${issue.myVote === 'affected' ? 'button-lime' : 'button-outline'}`} onClick={() => update(`/issues/${id}/vote`, { response: issue.myVote === 'affected' ? 'clear' : 'affected' })}><ThumbsUp size={15} /> I’m affected <b>{issue.affectedCount}</b></button><button className={`button ${issue.myVote === 'not-affected' ? 'button-selected-muted' : 'button-outline'}`} onClick={() => update(`/issues/${id}/vote`, { response: issue.myVote === 'not-affected' ? 'clear' : 'not-affected' })}><ThumbsDown size={15} /> Haven’t experienced it <b>{issue.notAffectedCount}</b></button></div></div><div className="detail-actions"><button className={`button button-outline ${issue.isFollowing ? 'button-following' : ''}`} onClick={() => update(`/issues/${id}/follow`)}>{issue.isFollowing ? <Check size={15} /> : <Bookmark size={15} />}{issue.isFollowing ? 'Following updates' : 'Follow updates'}</button><button className="button button-quiet" onClick={shareIssue}><Send size={15} /> Share</button></div></article>
+  const reporterOwnsIssue = user?.role === 'student' && String(issue.author?._id || issue.author) === String(user.id);
+  return <div className="detail-page"><button className="back-link" onClick={onBack}><ArrowLeft size={15} /> Back to the board</button><div className="detail-layout"><section className="detail-main"><article className="detail-card"><div className="issue-topline"><div className="issue-author"><Avatar person={issue.author} size="sm" /><div><Link className="profile-author-link" to={`/profile/${issue.author?._id || issue.author?.id}`}>{issue.author?.name || 'Campus member'}</Link><span>{ago(issue.createdAt)} <b>·</b> <MapPin size={11} /> {issue.location}</span></div></div><StatusBadge status={issue.status} /></div><div className="issue-tags detail-tags"><Pill className="category-pill">{issue.category}</Pill></div><h1>{issue.title}</h1><p className="detail-description">{issue.description}</p>{issue.imageUrl && <img className="detail-photo" src={asset(issue.imageUrl)} alt="Photo attached to the reported issue" />}{issue.videoUrl && <video className="detail-video" src={asset(issue.videoUrl)} controls playsInline preload="metadata" aria-label="Video attached to the reported issue" />}<div className="detail-meta"><span><MapPin size={15} />{issue.location}</span><span><Clock3 size={15} />Reported {new Date(issue.createdAt).toLocaleDateString()}</span></div><div className="detail-impacts"><span className="impact-label">CAMPUS IMPACT</span><p>{issue.affectedCount} {issue.affectedCount === 1 ? 'person is' : 'people are'} affected by this</p><div className="impact-buttons"><button className={`button ${issue.myVote === 'affected' ? 'button-lime' : 'button-outline'}`} onClick={() => update(`/issues/${id}/vote`, { response: issue.myVote === 'affected' ? 'clear' : 'affected' })}><ThumbsUp size={15} /> I’m affected <b>{issue.affectedCount}</b></button><button className={`button ${issue.myVote === 'not-affected' ? 'button-selected-muted' : 'button-outline'}`} onClick={() => update(`/issues/${id}/vote`, { response: issue.myVote === 'not-affected' ? 'clear' : 'not-affected' })}><ThumbsDown size={15} /> Haven’t experienced it <b>{issue.notAffectedCount}</b></button></div></div><div className="detail-actions"><button className={`button button-outline ${issue.isFollowing ? 'button-following' : ''}`} onClick={() => update(`/issues/${id}/follow`)}>{issue.isFollowing ? <Check size={15} /> : <Bookmark size={15} />}{issue.isFollowing ? 'Following updates' : 'Follow updates'}</button><button className="button button-quiet" onClick={shareIssue}><Send size={15} /> Share</button>{reporterOwnsIssue && issue.status === 'Resolved' && <button className="button button-lime" onClick={reopenAsReporter} disabled={reopening}><RotateCcw size={15} />{reopening ? 'Reopening...' : 'Reopen issue'}</button>}{reporterOwnsIssue && <button className="button button-quiet issue-delete-button" onClick={deleteOwnIssue} disabled={deleting}><Trash2 size={15} />{deleting ? 'Deleting...' : 'Delete issue'}</button>}</div></article>
+      {issue.status === 'Resolved' && !reporterOwnsIssue && (user?.role === 'student' || !user) && <div className={`resolution-check ${issue.hasRequestedReopen ? 'resolution-requested' : ''}`}><div className="resolution-check-copy"><strong>Still having this problem?</strong><span>{issue.reopenRequestCount === 0 ? 'Let the operations team know it may need more work.' : `${issue.reopenRequestCount} ${issue.reopenRequestCount === 1 ? 'student has' : 'students have'} reported this is still unresolved.`}</span></div><button type="button" className="button button-outline" aria-pressed={Boolean(issue.hasRequestedReopen)} onClick={toggleReopenRequest}>{issue.hasRequestedReopen ? <Check size={15} /> : <RotateCcw size={15} />}{issue.hasRequestedReopen ? 'Withdraw my report' : 'Still not fixed'}</button></div>}
       <section className="comments-panel">
         <div className="comments-title"><div><span className="section-kicker">KEEP THE CONVERSATION USEFUL</span><h2>Community discussion <span>{issue.commentsCount ?? issue.comments.length}</span></h2></div><span className="discussion-note"><Users size={14} /> Be kind, stay constructive</span></div>
          <form className="comment-composer" onSubmit={postComment}>
@@ -245,7 +287,7 @@ function IssuePage({ user, requireUser, onBack }) {
         </form>
         <div className="comments-list">{issue.comments.length ? issue.comments.map((item, index) => <CommentItem key={item._id || index} item={item} user={user} onLike={toggleCommentLike} onReply={replyToComment} onDelete={deleteComment} />) : <div className="empty-comments"><MessageCircle size={20} /><span>No comments yet. Add the first helpful detail.</span></div>}</div>
       </section>
-      </section><aside className="detail-side"><div className="team-response-card"><div className="response-card-icon"><ShieldCheck size={19} /></div><span className="section-kicker">ROUTED TO</span><h3>{issue.team}</h3><p>The right campus team has been tagged. Their updates will appear here as they work on it.</p><div className="team-response-foot"><span className="response-online" /> {issue.status === 'Open' ? 'Waiting for a team response' : 'Team is on this'}</div></div>{canManage && <div className="staff-update-card"><div className="staff-update-head"><span className="response-card-icon"><ClipboardList size={18} /></span><div><span className="section-kicker">STAFF TOOLS</span><h3>Update this issue</h3></div></div><label>Status<select value={statusDraft || issue.status} onChange={e => setStatusDraft(e.target.value)}>{statuses.map(status => <option key={status}>{status}</option>)}</select></label><label>Public note <textarea value={statusNote} maxLength={500} onChange={e => setStatusNote(e.target.value)} placeholder="Share an update with students..." /></label><small>Updates appear on this issue's public timeline.</small><button className="button button-dark staff-update-submit" type="button" onClick={changeStatus} disabled={savingStatus || (!statusNote.trim() && statusDraft === issue.status)}>{savingStatus ? 'Posting...' : 'Post update'} <ArrowRight size={14} /></button></div>}<div className="timeline-card"><span className="section-kicker">ISSUE TIMELINE</span>{issue.updates.slice().reverse().map((update, index) => <div className="timeline-entry" key={update._id || index}><span className={`timeline-icon ${index === 0 ? 'timeline-current' : ''}`}>{update.status === 'Resolved' ? <Check size={12} /> : <span />}</span><div><strong>{update.status}</strong><p>{update.note || `Status updated by ${update.author?.name || 'Campus operations'}`}</p><small>{ago(update.createdAt)}</small></div></div>)}</div></aside></div></div>;
+      </section><aside className="detail-side"><div className="team-response-card"><div className="response-card-icon"><ShieldCheck size={19} /></div><span className="section-kicker">ROUTED TO</span><h3>{issue.team}</h3><p>The right campus team has been tagged. Their updates will appear here as they work on it.</p><div className="team-response-foot"><span className="response-online" /> {issue.status === 'Open' ? 'Waiting for a team response' : 'Team is on this'}</div></div>{canManage && <div className="staff-update-card"><div className="staff-update-head"><span className="response-card-icon"><ClipboardList size={18} /></span><div><span className="section-kicker">STAFF TOOLS</span><h3>Update this issue</h3></div></div>{issue.status === 'Resolved' && issue.reopenRequestCount > 0 && <div className="reopen-alert"><strong>{issue.reopenRequestCount} student {issue.reopenRequestCount === 1 ? 'says this is' : 'reports this is'} still unresolved</strong><span>Review the issue and change its status if more work is needed.</span></div>}<label>Status<select value={statusDraft || issue.status} onChange={e => setStatusDraft(e.target.value)}>{statuses.map(status => <option key={status}>{status}</option>)}</select></label><label>Public note <textarea value={statusNote} maxLength={500} onChange={e => setStatusNote(e.target.value)} placeholder="Share an update with students..." /></label><small>Updates appear on this issue's public timeline.</small><button className="button button-dark staff-update-submit" type="button" onClick={changeStatus} disabled={savingStatus || (!statusNote.trim() && statusDraft === issue.status)}>{savingStatus ? 'Posting...' : 'Post update'} <ArrowRight size={14} /></button></div>}<div className="timeline-card"><span className="section-kicker">ISSUE TIMELINE</span>{issue.updates.slice().reverse().map((update, index) => <div className="timeline-entry" key={update._id || index}><span className={`timeline-icon ${index === 0 ? 'timeline-current' : ''}`}>{update.status === 'Resolved' ? <Check size={12} /> : <span />}</span><div><strong>{update.status}</strong><p>{update.note || 'Status changed'}</p>{update.author?._id && <Link className="timeline-author" to={`/profile/${update.author._id}`}>by {update.author.name || 'Campus operations'}</Link>}<small>{ago(update.createdAt)}</small></div></div>)}</div></aside></div></div>;
 }
 
 function StaffQueue({ user, requireUser }) {
@@ -352,15 +394,61 @@ function ComposePanel({ user, onClose, onCreated }) {
     </form>
   </>;
 }
+function ProfilePage({ user, requireUser, onUserUpdate }) {
+  const { id } = useParams();
+  const navigate = useNavigate();
+  const [profile, setProfile] = useState(null);
+  const [tab, setTab] = useState('issues');
+  const [loading, setLoading] = useState(true);
+  const [uploading, setUploading] = useState(false);
+  const [error, setError] = useState('');
+  const fileRef = useRef(null);
+  const load = useCallback(async () => {
+    if (!user) { setProfile(null); setLoading(false); return; }
+    setLoading(true); setError('');
+    try { const { data } = await API.get(`/auth/profile/${id}`); setProfile({ ...data, isOwner: Boolean(user?.id && user.id === data.user.id) }); }
+    catch (err) { setError(err.response?.data?.message || 'Could not load your profile. Try again.'); }
+    finally { setLoading(false); }
+  }, [id, user]);
+  useEffect(() => { load(); }, [load]);
+  const backButton = <button className="back-link" onClick={() => navigate(-1)}><ArrowLeft size={15} /> Back</button>;
+  const uploadAvatar = async event => {
+    const file = event.target.files?.[0];
+    event.target.value = '';
+    if (!file) return;
+    if (!file.type.startsWith('image/')) { toast.error('Choose an image file.'); return; }
+    if (file.size > 5 * 1024 * 1024) { toast.error('Profile images must be 5 MB or smaller.'); return; }
+    const formData = new FormData(); formData.append('image', file);
+    setUploading(true);
+    try { const { data } = await API.post('/auth/profile/avatar', formData); setProfile(value => value ? { ...value, user: data.user } : value); onUserUpdate(data.user); toast.success('Profile photo updated.'); }
+    catch (err) { toast.error(err.response?.data?.message || 'Could not upload your profile photo.'); }
+    finally { setUploading(false); }
+  };
+  if (!user) return <div className="profile-page">{backButton}<div className="state-card"><UserRound /><strong>Sign in to view profiles</strong><p>Campus member profiles are available to signed-in users.</p><button className="button button-dark" onClick={() => requireUser()}>Sign in</button></div></div>;
+  if (loading) return <div className="profile-page">{backButton}<div className="detail-skeleton" /></div>;
+  if (error || !profile) return <div className="profile-page">{backButton}<div className="state-card error-state"><CircleHelp /><strong>Profile unavailable</strong><p>{error}</p><button className="button button-outline" onClick={load}>Try again</button></div></div>;
+  const { user: person, issues, comments, savedIssues } = profile;
+  const isOwner = profile.isOwner && user?.id === person.id;
+  const items = tab === 'issues' ? issues : tab === 'comments' ? comments : savedIssues;
+  const openIssue = issue => issue?._id && navigate(`/issues/${issue._id}`);
+  return <div className="profile-page">{backButton}<section className="profile-card"><div className="profile-avatar-wrap"><Avatar person={person} size="lg" className="profile-avatar" />{isOwner && <><button type="button" className="avatar-upload" onClick={() => fileRef.current?.click()} disabled={uploading} aria-label="Change profile photo">{uploading ? <span className="upload-spinner" /> : <Camera size={16} />}</button><input ref={fileRef} hidden type="file" accept="image/*" onChange={uploadAvatar} /></>}</div><div className="profile-identity"><span className="section-kicker">{person.role === 'student' ? 'STUDENT PROFILE' : 'CAMPUS OPERATIONS'}</span><h1>{person.name}</h1><p>{person.email}</p><div className="profile-tags">{person.role === 'student' ? <Pill>Roll no. {person.rollNo || 'Not provided'}</Pill> : <><Pill>{person.team} operations</Pill><Pill>Employee ID {person.employeeId || 'Not provided'}</Pill></>}</div>{!isOwner && <span className="profile-readonly">Member profile · view only</span>}</div></section><section className="profile-content"><div className="profile-summary"><div><strong>{issues.length}</strong><span>Issues raised</span></div><div><strong>{comments.length}</strong><span>Comments</span></div><div><strong>{savedIssues.length}</strong><span>Following</span></div></div><div className="profile-tabs" role="tablist"><button role="tab" aria-selected={tab === 'issues'} className={tab === 'issues' ? 'profile-tab-active' : ''} onClick={() => setTab('issues')}>{isOwner ? 'My issues' : 'Issues'} <span>{issues.length}</span></button><button role="tab" aria-selected={tab === 'comments'} className={tab === 'comments' ? 'profile-tab-active' : ''} onClick={() => setTab('comments')}>{isOwner ? 'My comments' : 'Comments'} <span>{comments.length}</span></button><button role="tab" aria-selected={tab === 'saved'} className={tab === 'saved' ? 'profile-tab-active' : ''} onClick={() => setTab('saved')}>Following <span>{savedIssues.length}</span></button></div>{items.length ? <div className="profile-items">{items.map((item, index) => { const issue = tab === 'comments' ? item.issue : item; return <button className="profile-item" key={item._id || index} onClick={() => openIssue(issue)}><div className="profile-item-top"><Pill>{tab === 'comments' ? 'Comment' : issue.category}</Pill>{tab !== 'comments' && <StatusBadge status={issue.status} />}<span>{ago(item.createdAt)}</span></div><strong>{tab === 'comments' ? issue?.title || 'Issue' : issue.title}</strong>{tab === 'comments' ? <p>{item.body}</p> : <small><MapPin size={12} />{issue.location}</small>}</button>; })}</div> : <div className="profile-empty"><UserRound size={19} /><strong>{tab === 'issues' ? 'No issues raised yet' : tab === 'comments' ? 'No comments yet' : 'No followed issues yet'}</strong><span>{tab === 'issues' ? 'Reports created by this member will appear here.' : tab === 'comments' ? 'Discussion contributions will appear here.' : 'Followed issue updates will appear here.'}</span></div>}</section></div>;
+}
+
 function AuthPanel({ onClose, onAuth }) {
   const [mode, setMode] = useState('login');
-  const [form, setForm] = useState({ name: '', email: '', password: '' });
+  const [role, setRole] = useState('student');
+  const [form, setForm] = useState({ name: '', email: '', password: '', rollNo: '', team: 'Facilities', employeeId: '', opsCode: '' });
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState('');
   const set = (key, value) => setForm(prev => ({ ...prev, [key]: value }));
-  const submit = async (e) => { e.preventDefault(); setLoading(true); setError(''); try { const { data } = await API.post(`/auth/${mode}`, form); onAuth(data.user); } catch (err) { setError(err.response?.data?.message || 'Could not sign you in. Check your connection and try again.'); } finally { setLoading(false); } };
-  const demo = async (email) => { setLoading(true); setError(''); try { const { data } = await API.post('/auth/login', { email, password: 'CampusFix2026!' }); onAuth(data.user); } catch (err) { setError(err.response?.data?.message || 'Demo accounts are not set up yet. Follow the README to seed sample data.'); } finally { setLoading(false); } };
-  return <><div className="auth-brand"><span className="brand-mark"><Wrench size={20} /></span><strong>campusfix<span className="brand-period">.</span></strong><button className="icon-button" onClick={onClose}><X size={19} /></button></div><div className="auth-heading"><span className="section-kicker">YOUR VOICE, YOUR CAMPUS</span><h2>{mode === 'login' ? 'Welcome back.' : 'Join the conversation.'}</h2><p>{mode === 'login' ? 'Sign in to share, follow, and help move campus issues forward.' : 'Create an account and help make campus better for everyone.'}</p></div>{error && <div className="auth-error">{error}</div>}<form className="auth-form" onSubmit={submit}>{mode === 'register' && <label>Your name<input required autoComplete="name" maxLength={80} value={form.name} onChange={e => set('name', e.target.value)} placeholder="Full name" /></label>}<label>Campus email<input required type="email" autoComplete="email" value={form.email} onChange={e => set('email', e.target.value)} placeholder="you@university.edu" /></label><label>Password<input required type="password" autoComplete={mode === 'login' ? 'current-password' : 'new-password'} minLength={mode === 'register' ? 8 : 1} value={form.password} onChange={e => set('password', e.target.value)} placeholder={mode === 'register' ? 'At least 8 characters' : 'Your password'} /></label><button className="button button-dark auth-submit" disabled={loading}>{loading ? 'One moment...' : mode === 'login' ? 'Sign in' : 'Create account'} <ArrowRight size={16} /></button></form><div className="auth-switch">{mode === 'login' ? 'New to CampusFix?' : 'Already have an account?'} <button onClick={() => { setMode(mode === 'login' ? 'register' : 'login'); setError(''); }}>{mode === 'login' ? 'Create an account' : 'Sign in'}</button></div><details className="demo-details"><summary><Sparkles size={14} /> Try CampusFix with demo accounts</summary><div><button disabled={loading} onClick={() => demo('student@campusfix.demo')}><span>Student view</span><small>student@campusfix.demo</small></button><button disabled={loading} onClick={() => demo('facilities@campusfix.demo')}><span>Facilities staff</span><small>facilities@campusfix.demo</small></button><button disabled={loading} onClick={() => demo('it@campusfix.demo')}><span>IT staff</span><small>it@campusfix.demo</small></button><button disabled={loading} onClick={() => demo('admin@campusfix.demo')}><span>Admin view</span><small>admin@campusfix.demo</small></button></div><small>Demo password: CampusFix2026! · Add data with <code>npm run seed</code> in backend first.</small></details><div className="auth-privacy"><ShieldCheck size={15} /> Your password is encrypted. We never post on your behalf.</div></>;
+  const submit = async event => {
+    event.preventDefault(); setLoading(true); setError('');
+    try { const payload = mode === 'login' ? { email: form.email, password: form.password } : { ...form, role }; const { data } = await API.post(`/auth/${mode}`, payload); onAuth(data.user); }
+    catch (err) { setError(err.response?.data?.message || 'Could not complete this request. Check your connection and try again.'); }
+    finally { setLoading(false); }
+  };
+  const changeMode = () => { setMode(value => value === 'login' ? 'register' : 'login'); setError(''); };
+  return <><div className="auth-brand"><span className="brand-mark"><Wrench size={20} /></span><strong>campusfix<span className="brand-period">.</span></strong><button className="icon-button" onClick={onClose} aria-label="Close sign in"><X size={19} /></button></div><div className="auth-heading"><span className="section-kicker">YOUR VOICE, YOUR CAMPUS</span><h2>{mode === 'login' ? 'Welcome back.' : 'Join the campus.'}</h2><p>{mode === 'login' ? 'Sign in with your Scaler campus email.' : 'Create your campus account to report and track issues.'}</p></div>{error && <div className="auth-error" role="alert">{error}</div>}<form className="auth-form auth-form-register" onSubmit={submit}>{mode === 'register' && <><div className="register-role-label">I am registering as</div><div className="register-role-choice"><button type="button" className={role === 'student' ? 'role-choice-active' : ''} onClick={() => { setRole('student'); setError(''); }}><Users size={16} /><span>Student</span></button><button type="button" className={role === 'ops' ? 'role-choice-active' : ''} onClick={() => { setRole('ops'); setError(''); }}><Wrench size={16} /><span>Operations</span></button></div><label>Full name<input required autoComplete="name" maxLength={80} value={form.name} onChange={event => set('name', event.target.value)} placeholder="Your full name" /></label>{role === 'student' ? <label>Student roll number<input required autoComplete="off" maxLength={40} value={form.rollNo} onChange={event => set('rollNo', event.target.value)} placeholder="e.g. SST2026-014" /></label> : <><label>Department<select required value={form.team} onChange={event => set('team', event.target.value)}>{['Facilities', 'IT', 'Security', 'Dining', 'Grounds'].map(team => <option key={team}>{team}</option>)}</select></label><label>Employee ID<input required autoComplete="off" maxLength={40} value={form.employeeId} onChange={event => set('employeeId', event.target.value)} placeholder="Your staff ID" /></label><label>Operations access code<input required type="password" autoComplete="new-password" value={form.opsCode} onChange={event => set('opsCode', event.target.value)} placeholder="Provided by your administrator" /></label></>}</>}{mode === 'login' && <label>Campus email<input required type="email" autoComplete="email" value={form.email} onChange={event => set('email', event.target.value)} placeholder="name@sst.scaler.com" /></label>}{mode === 'register' && <label>Campus email<input required type="email" autoComplete="email" value={form.email} onChange={event => set('email', event.target.value)} placeholder="name@sst.scaler.com or @scaler.com" /></label>}<label>Password<input required type="password" autoComplete={mode === 'login' ? 'current-password' : 'new-password'} minLength={mode === 'register' ? 8 : 1} maxLength={128} value={form.password} onChange={event => set('password', event.target.value)} placeholder={mode === 'register' ? 'At least 8 characters' : 'Your password'} /></label><button className="button button-dark auth-submit" disabled={loading}>{loading ? 'One moment...' : mode === 'login' ? 'Sign in' : 'Create account'} <ArrowRight size={16} /></button><p className="email-domain-hint">Use an <strong>@sst.scaler.com</strong> or <strong>@scaler.com</strong> address.</p></form><div className="auth-switch">{mode === 'login' ? 'New to CampusFix?' : 'Already have an account?'} <button onClick={changeMode}>{mode === 'login' ? 'Create an account' : 'Sign in'}</button></div><div className="auth-privacy"><ShieldCheck size={15} /> Passwords are securely encrypted.</div></>;
 }
 
 export default App;

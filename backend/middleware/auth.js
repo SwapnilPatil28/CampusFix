@@ -1,13 +1,16 @@
 import jwt from 'jsonwebtoken';
 import User from '../models/User.js';
 
+const isCampusEmail = email => /^[^\s@]+@(?:sst\.scaler\.com|scaler\.com)$/i.test(String(email || ''));
+
 export async function optionalAuth(req, _res, next) {
   const token = req.cookies?.campusfix_token;
   if (!token) return next();
   let decoded;
   try { decoded = jwt.verify(token, process.env.JWT_SECRET); }
   catch { return next(); } // An expired or invalid cookie behaves like a signed-out visitor.
-  req.user = await User.findById(decoded.id);
+  const user = await User.findById(decoded.id);
+  req.user = user && isCampusEmail(user.email) ? user : null;
   next();
 }
 

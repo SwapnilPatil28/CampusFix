@@ -14,6 +14,10 @@ const issueSchema = new mongoose.Schema({
   status: { type: String, enum: ['Open', 'Acknowledged', 'In progress', 'Resolved', 'Reopened'], default: 'Open' },
   votes: [{ user: { type: mongoose.Schema.Types.ObjectId, ref: 'User' }, response: { type: String, enum: ['affected', 'not-affected'] } }],
   followers: [{ type: mongoose.Schema.Types.ObjectId, ref: 'User' }],
+  reopenRequests: [{
+    user: { type: mongoose.Schema.Types.ObjectId, ref: 'User', required: true },
+    createdAt: { type: Date, default: Date.now }
+  }],
   comments: [{
     author: { type: mongoose.Schema.Types.ObjectId, ref: 'User', required: true },
     body: { type: String, required: true, trim: true, maxlength: 1200 },

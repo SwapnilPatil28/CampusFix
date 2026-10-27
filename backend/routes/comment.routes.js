@@ -12,7 +12,7 @@ router.get('/', optionalAuth, async (req, res, next) => {
     const { id } = req.params;
     if (!mongoose.isValidObjectId(id)) return res.status(404).json({ message: 'Issue not found.' });
     if (!await Issue.exists({ _id: id })) return res.status(404).json({ message: 'Issue not found.' });
-    const comments = await Comment.find({ issue: id }).sort({ createdAt: 1 }).populate('author', 'name role team avatarColor').lean();
+    const comments = await Comment.find({ issue: id }).sort({ createdAt: 1 }).populate('author', 'name role team avatarColor avatarUrl').lean();
     res.json({ comments });
   } catch (error) { next(error); }
 });
@@ -40,7 +40,7 @@ router.post('/', requireAuth, async (req, res, next) => {
       ]);
       throw error;
     }
-    const savedComment = await Comment.findById(comment._id).populate('author', 'name role team avatarColor').lean();
+    const savedComment = await Comment.findById(comment._id).populate('author', 'name role team avatarColor avatarUrl').lean();
     res.status(201).json({ comment: savedComment });
   } catch (error) { next(error); }
 });
@@ -63,8 +63,8 @@ router.delete('/:commentId', requireAuth, async (req, res, next) => {
 router.post('/:commentId/like', requireAuth, async (req, res, next) => {
   try {
     const filter = { _id: req.params.commentId, issue: req.params.id };
-    const updated = await Comment.findOneAndUpdate({ ...filter, likedBy: { $ne: req.user._id } }, { $addToSet: { likedBy: req.user._id }, $inc: { likes: 1 } }, { new: true }).populate('author', 'name role team avatarColor').lean();
-    const comment = updated || await Comment.findOne(filter).populate('author', 'name role team avatarColor').lean();
+    const updated = await Comment.findOneAndUpdate({ ...filter, likedBy: { $ne: req.user._id } }, { $addToSet: { likedBy: req.user._id }, $inc: { likes: 1 } }, { new: true }).populate('author', 'name role team avatarColor avatarUrl').lean();
+    const comment = updated || await Comment.findOne(filter).populate('author', 'name role team avatarColor avatarUrl').lean();
     if (!comment) return res.status(404).json({ message: 'Comment not found.' });
     res.json({ comment });
   } catch (error) { next(error); }
@@ -73,8 +73,8 @@ router.post('/:commentId/like', requireAuth, async (req, res, next) => {
 router.delete('/:commentId/like', requireAuth, async (req, res, next) => {
   try {
     const filter = { _id: req.params.commentId, issue: req.params.id };
-    const updated = await Comment.findOneAndUpdate({ ...filter, likedBy: req.user._id }, { $pull: { likedBy: req.user._id }, $inc: { likes: -1 } }, { new: true }).populate('author', 'name role team avatarColor').lean();
-    const comment = updated || await Comment.findOne(filter).populate('author', 'name role team avatarColor').lean();
+    const updated = await Comment.findOneAndUpdate({ ...filter, likedBy: req.user._id }, { $pull: { likedBy: req.user._id }, $inc: { likes: -1 } }, { new: true }).populate('author', 'name role team avatarColor avatarUrl').lean();
+    const comment = updated || await Comment.findOne(filter).populate('author', 'name role team avatarColor avatarUrl').lean();
     if (!comment) return res.status(404).json({ message: 'Comment not found.' });
     res.json({ comment });
   } catch (error) { next(error); }

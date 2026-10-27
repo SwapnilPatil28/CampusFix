@@ -27,6 +27,19 @@ export function uploadIssueImage(buffer) {
   });
 }
 
+export function uploadProfileImage(buffer) {
+  return new Promise((resolve, reject) => {
+    const stream = cloudinary.uploader.upload_stream(
+      { folder: 'campusfix/profiles', resource_type: 'image' },
+      (error, result) => {
+        if (error) return reject(error);
+        resolve(result);
+      }
+    );
+    stream.end(buffer);
+  });
+}
+
 export function uploadIssueVideo(buffer) {
   return new Promise((resolve, reject) => {
     const stream = cloudinary.uploader.upload_stream(

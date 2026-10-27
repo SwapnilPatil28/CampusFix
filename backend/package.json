@@ -3,7 +3,7 @@
   "version": "1.0.0",
   "private": true,
   "type": "module",
-  "scripts": { "dev": "nodemon index.js", "start": "node index.js", "seed": "node seed.js" },
+  "scripts": { "dev": "nodemon index.js", "start": "node index.js" },
   "dependencies": {
     "bcryptjs": "^2.4.3",
     "cloudinary": "^2.7.0",
